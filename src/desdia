@@ -1,0 +1,2 @@
+source sourceme.sh
+python ./src/desdia.py "$@"
