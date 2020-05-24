@@ -10,7 +10,6 @@ import query, pipeline
 from misc import toIAU
 from misc import bash
 from misc import clean_pool
-import qso_plot
 
 def start_tile(tilename,program='survey',band='g',work_dir='./work',out_dir=None,threads=1):
     # run pipeline on a tile
@@ -87,7 +86,7 @@ def main():
     # wide survey mode (in FermiGrid environment)
     if args.grid == True:
         # get all tile names
-        tile_info = np.load(os.path.join(os.environ["CONDOR_DIR_INPUT"],"tile_info.npy")
+        tile_info = np.load(os.path.join(os.environ["CONDOR_DIR_INPUT"],"tile_info.npy"))
         # use process number to select tile
         num_proc = int(os.environ["PROCESS"])
         if program == "survey": # 12,966 tiles

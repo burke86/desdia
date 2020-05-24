@@ -1,3 +1,8 @@
+import os
+import despydb.desdbi as desdbi
+import numpy as np
+import argparse
+
 class Query:
 
     def __init__(self,section="db-dessci"):
@@ -6,7 +11,13 @@ class Query:
         f = open(self.desdmfile,"r")
         contents = f.read()
         s = contents.split('[%s]' % section)[1].replace("\n"," ")
-        self.umes_from_object(self,ra,dec,band,window_radius=10):
+        self.usr = s.split("user")[1].split("=")[1].split()[0]
+        self.psw = s.split("passwd")[1].split("=")[1].split()[0]
+        # start connection
+        self.con = desdbi.DesDbi(self.desdmfile,section)
+        self.cur = self.con.cursor()
+
+    def get_filenames_from_object(self,ra,dec,band,window_radius=10):
         # get reduced filename from RA, DEC of object
         dec_radian = dec*np.pi/180.
         ra_upper = (ra+window_radius/3600./np.cos(dec_radian))
@@ -151,9 +162,4 @@ class Query:
             info_list = np.array(info_list,dtype=dtype_info)
             return info_list
         else:
-            return Nonesr = s.split("user")[1].split("=")[1].split()[0]
-        self.psw = s.split("passwd")[1].split("=")[1].split()[0]
-        # start connection
-        self.con = desdbi.DesDbi(self.desdmfile,section)
-        self.cur = self.con.cursor()
-
+            return None
