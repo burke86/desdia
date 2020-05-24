@@ -30,13 +30,14 @@ def difference(file_info):
 
 class Pipeline:
 
-    def __init__(self,bands,program,usr,psw,work_dir,out_dir,top_dir=None):
+    def __init__(self,bands,program,usr,psw,work_dir,out_dir,top_dir=None,min_epoch=5):
         self.bands = bands
         self.program = program
         self.usr = usr
         self.psw = psw
         self.tile_dir = work_dir
         self.out_dir = out_dir
+        self.min_epoch = min_epoch
         # setup directories
         top_path = os.path.abspath(__file__)
         # default paths
@@ -83,6 +84,7 @@ class Pipeline:
     def make_weight(self,archive_info):
         # get reduced images ready for generating template
         local_path = archive_info["path"]
+        print(local_path)
         # background, background variation
         file_root = local_path[0:-8]
         file_sci = file_root + ".fits"
@@ -90,6 +92,10 @@ class Pipeline:
         # make weight maps and mask
         code = bash('makeWeight -inFile_img %s -border 20 -outroot %s' % (local_path,file_root))
         if code != 0: return None
+        print('\n\n\n\n')
+        print(code)
+        print(file_sci)
+        print(archive_info)
         # convert files to single-header format
         single_header(file_sci)
         single_header(file_wgt)
@@ -279,7 +285,6 @@ class Pipeline:
         print('Differencing images.')
         file_info = clean_pool(difference,file_info,num_threads)
         # forced photometry
-        print('%d HOTPANTS attempts failed.' % self.num_fail)
         print('Performing forced photometry.')
         cat_list = clean_tpool(self.forced_photometry,file_info,num_threads)
         # get objects from template file

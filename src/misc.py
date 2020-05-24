@@ -38,17 +38,23 @@ def clean_info(info_list):
     return np.array(info_list_clean)
 
 def clean_pool(pool_func, arg_tuple, num_threads):
-    pool = Pool(num_threads)
-    out = pool.map(pool_func, arg_tuple)
-    pool.close()
-    pool.join()
+    if num_threads == 1:
+        out = pool_func(arg_tuple)
+    else:
+        pool = Pool(num_threads)
+        out = pool.map(pool_func, arg_tuple)
+        pool.close()
+        pool.join()
     return clean_info(out)
 
 def clean_tpool(pool_func, arg_tuple, num_threads):
-    pool = ThreadPool(num_threads)
-    out = pool.map(pool_func, arg_tuple)
-    pool.close()
-    pool.join()
+    if num_threads == 1:
+        out = pool_func(arg_tuple)
+    else:
+        pool = ThreadPool(num_threads)
+        out = pool.map(pool_func, arg_tuple)
+        pool.close()
+        pool.join()
     return clean_info(out)
 
 def safe_rm(file_path):
