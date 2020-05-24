@@ -4,6 +4,7 @@ from astropy.coordinates import SkyCoord
 from astropy import units as u
 from astropy.io import fits
 from multiprocessing import Pool
+from multiprocessing.dummy import Pool as ThreadPool
 
 def toIAU(ra, dec):
     c = SkyCoord(ra*u.degree, dec*u.degree)
@@ -38,6 +39,13 @@ def clean_info(info_list):
 
 def clean_pool(pool_func, arg_tuple, num_threads):
     pool = Pool(num_threads)
+    out = pool.map(pool_func, arg_tuple)
+    pool.close()
+    pool.join()
+    return clean_info(out)
+
+def clean_tpool(pool_func, arg_tuple, num_threads):
+    pool = ThreadPool(num_threads)
     out = pool.map(pool_func, arg_tuple)
     pool.close()
     pool.join()

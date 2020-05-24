@@ -225,9 +225,9 @@ class Pipeline:
         # given list of single-epoch image filenames in same tile or region, execute pipeline
         print('Pooling %d single-epoch images to %d threads.' % (len(image_list),num_threads))
         print('Downloading images, making weight maps and image masks.')
-        file_info = clean_pool(self.download_image, image_list, num_threads)
+        file_info = clean_tpool(self.download_image, image_list, num_threads)
         print("Downloaded %d images" % len(file_info))
-        file_info = clean_pool(self.make_weight, file_info, num_threads)
+        file_info = clean_tpool(self.make_weight, file_info, num_threads)
         # combine exposures with same MJD (tile mode only)
         print('Tiling CCD images.')
         file_info = self.combine_night(file_info,tile_head,num_threads)
@@ -274,20 +274,20 @@ class Pipeline:
         bash('swarp %s -c %s -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s -NTHREADS %d -RESAMPLE_DIR %s' % (swarp_temp_list,self.swarp_file,template_sci,template_wgt,num_threads,resample_dir))
         # project (re-align) images onto template
         print('Aligning images.')
-        clean_pool(self.align,swarp_all_list.split(),num_threads)
+        clean_tpool(self.align,swarp_all_list.split(),num_threads)
         # make difference images
         print('Differencing images.')
         file_info = clean_pool(difference,file_info,num_threads)
         # forced photometry
         print('%d HOTPANTS attempts failed.' % self.num_fail)
         print('Performing forced photometry.')
-        cat_list = clean_pool(self.forced_photometry,file_info,num_threads)
+        cat_list = clean_tpool(self.forced_photometry,file_info,num_threads)
         # get objects from template file
         template_cat = os.path.join(self.tile_dir,'template.cat')
         bash('sex %s -WEIGHT_IMAGE %s  -CATALOG_NAME %s -c %s -MAG_ZEROPOINT %f %s' % (template_sci,template_wgt,template_cat,self.sex_file,self.template_mag_zero,self.sex_pars))
         # write lightcurve data
         print('Generating light curves.')
-        lc_list = clean_pool(self.generate_light_curves,cat_list,num_threads)
+        lc_list = clean_tpool(self.generate_light_curves,cat_list,num_threads)
         # concatenate array and remove duplicates
         if lc_list is None:
             print("No light curves found.")
