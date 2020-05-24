@@ -37,7 +37,7 @@ def clean_info(info_list):
     return np.array(info_list_clean)
 
 def clean_pool(pool_func, arg_tuple, num_threads):
-    pool = ThreadPool(num_threads)
+    pool = Pool(num_threads)
     out = pool.map(pool_func, arg_tuple)
     pool.close()
     pool.join()
