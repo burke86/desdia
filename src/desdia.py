@@ -104,7 +104,7 @@ def main():
     elif args.tile is not None:
         # start tile
         tile = np.asscalar(np.asarray(args.tile))
-        start_tile(tile,program,band,work_dir,out_dir,mp.cpu_count())
+        start_tile(tile,program,band,work_dir,out_dir,threads)
     else:
         # none specified
         parser.error('Must specify --tile.')

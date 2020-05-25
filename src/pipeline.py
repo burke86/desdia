@@ -70,6 +70,7 @@ class Pipeline:
         filepath = archive_info['path']
         filename = archive_info['filename']
         compression = archive_info['compression']
+        print(filename)
         archive_path = os.path.join(filepath,filename+compression)
         # download image from image archive server
     	url = os.path.join('https://desar2.cosmology.illinois.edu/DESFiles/desarchive/',archive_path)
@@ -84,7 +85,6 @@ class Pipeline:
     def make_weight(self,archive_info):
         # get reduced images ready for generating template
         local_path = archive_info["path"]
-        print(local_path)
         # background, background variation
         file_root = local_path[0:-8]
         file_sci = file_root + ".fits"
@@ -92,10 +92,6 @@ class Pipeline:
         # make weight maps and mask
         code = bash('makeWeight -inFile_img %s -border 20 -outroot %s' % (local_path,file_root))
         if code != 0: return None
-        print('\n\n\n\n')
-        print(code)
-        print(file_sci)
-        print(archive_info)
         # convert files to single-header format
         single_header(file_sci)
         single_header(file_wgt)
@@ -111,8 +107,8 @@ class Pipeline:
         # combine images taken on same night into single tile
         tiledir = os.path.dirname(file_info[0][0])
         ps = tile_head['PIXELSCALE'][0] # arcseconds/pixel
-        size_x = tile_head['NAXIS1'][0] # pixels
-        size_y = tile_head['NAXIS2'][0] # pixels
+        size_x = 64 #tile_head['NAXIS1'][0] # pixels
+        size_y = 64 #tile_head['NAXIS2'][0] # pixels
         ra_cent = tile_head['RA_CENT'][0] # arcseconds
         dec_cent = tile_head['DEC_CENT'][0] # arcseconds
         file_list_out = []

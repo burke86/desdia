@@ -39,7 +39,7 @@ def clean_info(info_list):
 
 def clean_pool(pool_func, arg_tuple, num_threads):
     if num_threads == 1:
-        out = pool_func(arg_tuple)
+        out = [pool_func(arg) for arg in arg_tuple]
     else:
         pool = Pool(num_threads)
         out = pool.map(pool_func, arg_tuple)
@@ -49,7 +49,7 @@ def clean_pool(pool_func, arg_tuple, num_threads):
 
 def clean_tpool(pool_func, arg_tuple, num_threads):
     if num_threads == 1:
-        out = pool_func(arg_tuple)
+        out = [pool_func(arg) for arg in arg_tuple]
     else:
         pool = ThreadPool(num_threads)
         out = pool.map(pool_func, arg_tuple)
