@@ -25,6 +25,7 @@ def difference(file_info):
     safe_rm(file_wgt)
     # Handle HOTPANTS fatal error
     if code != 0:
+        print('ERRROR!!!')
         return None
     return file_info
 
@@ -70,7 +71,6 @@ class Pipeline:
         filepath = archive_info['path']
         filename = archive_info['filename']
         compression = archive_info['compression']
-        print(filename)
         archive_path = os.path.join(filepath,filename+compression)
         # download image from image archive server
     	url = os.path.join('https://desar2.cosmology.illinois.edu/DESFiles/desarchive/',archive_path)
@@ -107,8 +107,8 @@ class Pipeline:
         # combine images taken on same night into single tile
         tiledir = os.path.dirname(file_info[0][0])
         ps = tile_head['PIXELSCALE'][0] # arcseconds/pixel
-        size_x = 64 #tile_head['NAXIS1'][0] # pixels
-        size_y = 64 #tile_head['NAXIS2'][0] # pixels
+        size_x = tile_head['NAXIS1'][0] # pixels
+        size_y = tile_head['NAXIS2'][0] # pixels
         ra_cent = tile_head['RA_CENT'][0] # arcseconds
         dec_cent = tile_head['DEC_CENT'][0] # arcseconds
         file_list_out = []
@@ -162,45 +162,45 @@ class Pipeline:
         # with forced photometry on the template image
         # measure template flux to add to difference flux
         template_cat = os.path.join(self.tile_dir,'template.cat')
-        lc_out = []
+        diff_cat = cat_info['file']
+        print(diff_cat)
         # assumes all catalogs have same number of lines (detections)
         # true if doing forced photometry on template image
-        with open(template_cat,'r') as cat_template:
-            lines_template = cat_template.readlines()
-            # for each difference catalog file
-            catname = str(cat_info['file'])
-            with open(catname,'r') as cat_diff:
-                lines_diff = cat_diff.readlines()
-                # loop though lines in catalog files
-                for i in range(len(lines_template)):
-                    s_template = lines_template[i].split()
-                    if len(s_template) == 0 or str.startswith(lines_template[i],'#'):
-                        continue
-                    # astrometry
-                    ra = float(s_template[18]); dec = float(s_template[19])
-                    # fluxes (use FLUX_APER measurements in template for consistency)
-                    Ftmp = float(s_template[5]); Ferr_tmp = float(s_template[6])
-                    # check image flux
-                    s_diff = lines_diff[i].split()
-                    dF = float(s_diff[5])
-                    # not in a completely blank or masked region
-                    if dF != 0.0 and Ftmp > 1e-30 and np.isfinite(ra) and np.isfinite(dec):
-                        # get J-name and create file
-                        lc_name = '%s.dat' % toIAU(ra,dec)
-                        lc_name = os.path.join(self.tile_dir,lc_name)
-                        # open light curve file for this object
-                        with open(lc_name,'a+') as lc:
-                            dFerr = float(s_diff[6])
-                            F = dF+Ftmp
-                            if F > 0:
-                                Ferr = np.sqrt(dFerr**2+Ferr_tmp**2)
-                                m = self.template_mag_zero-2.5*np.log10(F)
-                                m_err = 2.5/np.log(10)*Ferr/F
-                                mjd_obs = cat_info['mjd']
-                                lc.write('%f %f %f %f %f %f %f\n' % (mjd_obs,m,m_err))
-                                lc_out.append((lc_name,ra,dec))
-        dtype = [('filename','|S200')]
-        return np.array(lc_out,dtype=dtype)
+        # template catalog
+        num,ra,dec,f3,f4,f5,ferr3,ferr4,ferr5 = np.loadtxt(template_cat, unpack=True)
+        # difference catalog
+        l = [np.loadtxt(str(i), unpack=True) for i in diff_cat]
+        num,ra,dec,df3,df4,df5,dferr3,dferr4,dferr5 = np.array(list(zip(*l)))
+        # bad photometry
+        df3[np.abs(df3)<1e-29] = np.nan
+        df4[np.abs(df4)<1e-29] = np.nan
+        df5[np.abs(df5)<1e-29] = np.nan
+        # save light curves
+        f3 = f3 + df3
+        f4 = f4 + df4
+        f5 = f5 + df5
+        ferr3 = np.sqrt(ferr3**2 + dferr3**2)
+        ferr4 = np.sqrt(ferr4**2 + dferr4**2)
+        ferr5 = np.sqrt(ferr5**2 + dferr5**2)
+        # magnitudes
+        m3 = self.template_mag_zero - 2.5*np.log10(f3)
+        m4 = self.template_mag_zero - 2.5*np.log10(f4)
+        m5 = self.template_mag_zero - 2.5*np.log10(f5)
+        merr3 = 2.5/np.log(10)*ferr3/f3
+        merr4 = 2.5/np.log(10)*ferr4/f4
+        merr5 = 2.5/np.log(10)*ferr5/f5
+        # save data
+        dat = [num, ra, dec, m3, m4, m5, merr3, merr4, merr5]
+        path_root = os.path.dirname(diff_cat[0])
+        path_dat = os.path.join(path_root,'cat.dat')
+        print(np.shape(dat))
+        nx, ny, nz = np.shape(dat)
+        dat = np.reshape(dat, (ny*nz,9))
+        print(np.shape(dat))
+        np.savetxt(path_dat,dat,fmt='%f %f %f %f %f %f %f %f %f')
+        safe_rm(template_cat)
+        [safe_rm(str(i)) for i in diff_cat]
+        return
 
 
     def forced_photometry(self,file_info):
@@ -282,18 +282,14 @@ class Pipeline:
         file_info = clean_pool(difference,file_info,num_threads)
         # forced photometry
         print('Performing forced photometry.')
+        print(file_info)
         cat_list = clean_tpool(self.forced_photometry,file_info,num_threads)
         # get objects from template file
         template_cat = os.path.join(self.tile_dir,'template.cat')
         bash('sex %s -WEIGHT_IMAGE %s  -CATALOG_NAME %s -c %s -MAG_ZEROPOINT %f %s' % (template_sci,template_wgt,template_cat,self.sex_file,self.template_mag_zero,self.sex_pars))
         # write lightcurve data
         print('Generating light curves.')
-        lc_list = clean_tpool(self.generate_light_curves,cat_list,num_threads)
-        # concatenate array and remove duplicates
-        if lc_list is None:
-            print("No light curves found.")
-            sys.exit(0)
-        lc_list = np.unique(np.concatenate(lc_list))
+        self.generate_light_curves(cat_list)
         # clean directory
         safe_rm(template_cat)
         for cat_file in cat_list:
@@ -303,4 +299,4 @@ class Pipeline:
         safe_rm(template_sci)
         safe_rm(template_wgt)
         safe_rm(template_sci[0:-5]+".head")
-        return lc_files
+        return
