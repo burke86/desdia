@@ -74,7 +74,7 @@ class Pipeline:
         archive_path = os.path.join(filepath,filename+compression)
         # download image from image archive server
     	url = os.path.join('https://desar2.cosmology.illinois.edu/DESFiles/desarchive/',archive_path)
-        bash('wget -nc -q --user %s --password %s %s -P %s' % (self.usr,self.psw,url,self.tile_dir),False)
+        bash('wget -nc --no-check-certificate --user %s --password %s %s -P %s' % (self.usr,self.psw,url,self.tile_dir),True)
         local_path = os.path.join(self.tile_dir,archive_path.split("/")[-1])
         dtype_info = [("path","|S200"),("mjd_obs",float),("nite",int),("psf_fwhm",float),("skysigma",float),("mag_zero",float),("sigma_mag_zero",float)]
         info_list = (local_path,archive_info["mjd_obs"],archive_info["nite"],archive_info["psf_fwhm"],archive_info["skysigma"],archive_info["mag_zero"],archive_info["sigma_mag_zero"])
@@ -163,41 +163,65 @@ class Pipeline:
         # measure template flux to add to difference flux
         template_cat = os.path.join(self.tile_dir,'template.cat')
         diff_cat = cat_info['file']
-        print(diff_cat)
+        mjds = cat_info['mjd']
         # assumes all catalogs have same number of lines (detections)
         # true if doing forced photometry on template image
         # template catalog
         num,ra,dec,f3,f4,f5,ferr3,ferr4,ferr5 = np.loadtxt(template_cat, unpack=True)
+        num_list = []; mjd_list = []
+        ra_list = []; dec_list = []
+        m3_list = []; merr3_list = []
+        m4_list = []; merr4_list = []
+        m5_list = []; merr5_list = []
         # difference catalog
-        l = [np.loadtxt(str(i), unpack=True) for i in diff_cat]
-        num,ra,dec,df3,df4,df5,dferr3,dferr4,dferr5 = np.array(list(zip(*l)))
-        # bad photometry
-        df3[np.abs(df3)<1e-29] = np.nan
-        df4[np.abs(df4)<1e-29] = np.nan
-        df5[np.abs(df5)<1e-29] = np.nan
-        # save light curves
-        f3 = f3 + df3
-        f4 = f4 + df4
-        f5 = f5 + df5
-        ferr3 = np.sqrt(ferr3**2 + dferr3**2)
-        ferr4 = np.sqrt(ferr4**2 + dferr4**2)
-        ferr5 = np.sqrt(ferr5**2 + dferr5**2)
-        # magnitudes
-        m3 = self.template_mag_zero - 2.5*np.log10(f3)
-        m4 = self.template_mag_zero - 2.5*np.log10(f4)
-        m5 = self.template_mag_zero - 2.5*np.log10(f5)
-        merr3 = 2.5/np.log(10)*ferr3/f3
-        merr4 = 2.5/np.log(10)*ferr4/f4
-        merr5 = 2.5/np.log(10)*ferr5/f5
-        # save data
-        dat = [num, ra, dec, m3, m4, m5, merr3, merr4, merr5]
+        for i, diff_cat_file in enumerate(diff_cat):
+            num,ra,dec,df3,df4,df5,dferr3,dferr4,dferr5 = np.loadtxt(str(diff_cat_file), unpack=True)
+            mjd = np.full(len(num), mjds[i])
+            # bad photometry
+            df3[np.abs(df3)<1e-29] = np.nan
+            df4[np.abs(df4)<1e-29] = np.nan
+            df5[np.abs(df5)<1e-29] = np.nan
+            # save light curves
+            f3 = f3 + df3
+            f4 = f4 + df4
+            f5 = f5 + df5
+            ferr3 = np.sqrt(ferr3**2 + dferr3**2)
+            ferr4 = np.sqrt(ferr4**2 + dferr4**2)
+            ferr5 = np.sqrt(ferr5**2 + dferr5**2)
+            # magnitudes
+            m3 = self.template_mag_zero - 2.5*np.log10(f3)
+            m4 = self.template_mag_zero - 2.5*np.log10(f4)
+            m5 = self.template_mag_zero - 2.5*np.log10(f5)
+            merr3 = 2.5/np.log(10)*ferr3/f3
+            merr4 = 2.5/np.log(10)*ferr4/f4
+            merr5 = 2.5/np.log(10)*ferr5/f5
+            # append arrays
+            num_list.append(num)
+            mjd_list.append(mjd)
+            ra_list.append(ra)
+            dec_list.append(dec)
+            m3_list.append(m3)
+            m4_list.append(m4)
+            m5_list.append(m5)
+            merr3_list.append(merr3)
+            merr4_list.append(merr4)
+            merr5_list.append(merr5)
+        # flatten and save data
+        num_list = np.array(num_list).flatten()
+        mjd_list = np.array(mjd_list).flatten()
+        ra_list = np.array(ra_list).flatten()
+        dec_list = np.array(dec_list).flatten()
+        m3_list = np.array(m3_list).flatten()
+        m4_list = np.array(m4_list).flatten()
+        m5_list = np.array(m5_list).flatten()
+        merr3_list = np.array(merr3_list).flatten()
+        merr4_list = np.array(merr4_list).flatten()
+        merr5_list = np.array(merr5_list).flatten()
+        # save
         path_root = os.path.dirname(diff_cat[0])
         path_dat = os.path.join(path_root,'cat.dat')
-        print(np.shape(dat))
-        nx, ny, nz = np.shape(dat)
-        dat = np.reshape(dat, (ny*nz,9))
-        print(np.shape(dat))
-        np.savetxt(path_dat,dat,fmt='%f %f %f %f %f %f %f %f %f')
+        dat = [num_list, mjd_list, ra_list, dec_list, m3_list, m4_list, m5_list, merr3_list, merr4_list, merr5_list]
+        np.savetxt(path_dat,np.array(dat).T,fmt='%d %f %f %f %f %f %f %f %f %f')
         safe_rm(template_cat)
         [safe_rm(str(i)) for i in diff_cat]
         return

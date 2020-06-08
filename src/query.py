@@ -54,9 +54,10 @@ class Query:
         if len(info_list) > 0:
             # create np stuctured array
             dtype = [("filename","|S41")]
-            tilename_list = np.array(info_list,dtype=dtype)
-            tilename_list = np.unique(tilename_list)
-            return tilename_list
+            filename_list = np.array(info_list,dtype=dtype)
+            filename_list = np.unique(filename_list)
+            print(filename_list)
+            return filename_list
         else:
             return None
 

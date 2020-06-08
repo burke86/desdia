@@ -18,9 +18,7 @@ def fromIAU(name):
     ra = "%sh%sm%ss" % (ra[0:2], ra[2:4], ra[4:])
     dec = "%sd%sm%ss" % (dec[0:3], dec[3:5], dec[5:])
     c = SkyCoord('%s %s' % (ra, dec))
-    ra = c.ra.degree
-    dec = c.dec.degree
-    return ra, dec
+    return c.ra.degree, c.dec.degree
 
 def single_header(filename):
     hdul = fits.open(filename,ignore_missing_end=True)
