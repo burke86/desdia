@@ -56,7 +56,6 @@ class Query:
             dtype = [("filename","|S41")]
             filename_list = np.array(info_list,dtype=dtype)
             filename_list = np.unique(filename_list)
-            print(filename_list)
             return filename_list
         else:
             return None
@@ -83,7 +82,9 @@ class Query:
         # get image archive info from filename from program
         if program == "survey":
             get_program = "and e.program!='supernova'"
-        else:
+        elif program == "supernova":
+            get_program = "and e.program='supernova'"
+        elif program == "any":
             get_program = ""
         # get Y1-Y6 images
         get_list = "select f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs, e.nite, z.mag_zero, z.sigma_mag_zero from y6a1_file_archive_info f, y6a1_image i, y6a1_exposure e, y6a1_qa_summary s, y6a1_zeropoint z where "

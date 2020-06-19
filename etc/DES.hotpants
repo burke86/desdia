@@ -1,1 +1,1 @@
--n t -convvar -bgo 1 -r 25 -ft 20.0 -rss 30 -kfm 0.999 -bgo 2 -rk0 9.01 -wk0 9 -wkX 5 -wkY 5 -rkx 5.01 -rky 5.01 -ng 4 4 1.0  3 2.0 2 6.0 1 12.0  -mcs 10.0 -mds 5.0 -mdf 0.2 -mks 0.05 -mnor 5.0 -sdif 5.0 -serr 1.e-6 -il -999999  -iu 999999 -tl -999999  -tu 999999 -v 0
+-n t -convvar -bgo 1 -r 25 -ft 10.0 -rss 30 -kfm 0.999 -bgo 2 -rk0 9.01 -wk0 9 -wkX 5 -wkY 5 -rkx 5.01 -rky 5.01 -ng 4 4 1.0  3 2.0 2 6.0 1 12.0  -mcs 10.0 -mds 5.0 -mdf 0.2 -mks 0.05 -mnor 5.0 -sdif 5.0 -serr 1.e-6 -il -999999  -iu 999999 -tl -999999  -tu 999999 -v 0

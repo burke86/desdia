@@ -25,13 +25,14 @@ def difference(file_info):
     safe_rm(file_wgt)
     # Handle HOTPANTS fatal error
     if code != 0:
-        print('ERRROR!!!')
+        print('***HOTPANTS FATAL ERROR**')
         return None
     return file_info
 
+
 class Pipeline:
 
-    def __init__(self,bands,program,usr,psw,work_dir,out_dir,top_dir=None,min_epoch=5):
+    def __init__(self,bands,program,usr,psw,work_dir,out_dir,top_dir=None,min_epoch=5,debug_mode=False):
         self.bands = bands
         self.program = program
         self.usr = usr
@@ -39,6 +40,7 @@ class Pipeline:
         self.tile_dir = work_dir
         self.out_dir = out_dir
         self.min_epoch = min_epoch
+        self.debug_mode = debug_mode
         # setup directories
         top_path = os.path.abspath(__file__)
         # default paths
@@ -74,7 +76,7 @@ class Pipeline:
         archive_path = os.path.join(filepath,filename+compression)
         # download image from image archive server
     	url = os.path.join('https://desar2.cosmology.illinois.edu/DESFiles/desarchive/',archive_path)
-        bash('wget -nc --no-check-certificate --user %s --password %s %s -P %s' % (self.usr,self.psw,url,self.tile_dir),True)
+        bash('wget -nc --no-check-certificate -q --user %s --password %s %s -P %s' % (self.usr,self.psw,url,self.tile_dir),True)
         local_path = os.path.join(self.tile_dir,archive_path.split("/")[-1])
         dtype_info = [("path","|S200"),("mjd_obs",float),("nite",int),("psf_fwhm",float),("skysigma",float),("mag_zero",float),("sigma_mag_zero",float)]
         info_list = (local_path,archive_info["mjd_obs"],archive_info["nite"],archive_info["psf_fwhm"],archive_info["skysigma"],archive_info["mag_zero"],archive_info["sigma_mag_zero"])
@@ -84,24 +86,52 @@ class Pipeline:
 
     def make_weight(self,archive_info):
         # get reduced images ready for generating template
-        local_path = archive_info["path"]
-        # background, background variation
-        file_root = local_path[0:-8]
-        file_sci = file_root + ".fits"
-        file_wgt = file_root + ".weight.fits"
-        # make weight maps and mask
-        code = bash('makeWeight -inFile_img %s -border 20 -outroot %s' % (local_path,file_root))
-        if code != 0: return None
-        # convert files to single-header format
-        single_header(file_sci)
-        single_header(file_wgt)
-        # create final list
-        dtype_info = [("path","|S200"),("mjd_obs",float),("nite",int),("psf_fwhm",float),("skysigma",float),("mag_zero",float),("sigma_mag_zero",float)]
-        info_list = (file_sci,archive_info["mjd_obs"],archive_info["nite"],archive_info["psf_fwhm"],archive_info["skysigma"],archive_info["mag_zero"],archive_info["sigma_mag_zero"])
-        info_list = np.array(info_list,dtype=dtype_info)
-        safe_rm(local_path)
-        return info_list
+        try:
+            local_path = archive_info["path"]
+            # background, background variation
+            file_root = local_path[0:-8]
+            file_sci = file_root + ".fits"
+            file_wgt = file_root + ".weight.fits"
+            # skip if file already exists (for debugging)
+            if not os.path.exists(file_sci):
+                # make weight maps and mask
+                code = bash('makeWeight -inFile_img %s -border 20 -outroot %s' % (local_path,file_root))
+                if code != 0:
+                    safe_rm(local_path, self.debug_mode)
+                    return None
+                # convert files to single-header format
+                single_header(file_sci)
+                single_header(file_wgt)
+                # create final list
+            dtype_info = [("path","|S200"),("mjd_obs",float),("nite",int),("psf_fwhm",float),("skysigma",float),("mag_zero",float),("sigma_mag_zero",float)]
+            info_list = (file_sci,archive_info["mjd_obs"],archive_info["nite"],archive_info["psf_fwhm"],archive_info["skysigma"],archive_info["mag_zero"],archive_info["sigma_mag_zero"])
+            info_list = np.array(info_list,dtype=dtype_info)
+            safe_rm(local_path, self.debug_mode)
+            return info_list
+        except:
+            return None
 
+    def swarp_nite(self, swarp_info):
+        swarp_list = swarp_info['swarp_list']
+        weight_list = swarp_list.replace(".fits",".weight.fits")
+        swarp_file_nite = swarp_info['swarp_file_nite']
+        imageout_name = swarp_info['imageout_name']
+        weightout_name = swarp_info['weightout_name']
+        ra_cent = swarp_info['ra_cent']
+        dec_cent = swarp_info['dec_cent']
+        ps = swarp_info['ps']
+        size_x = swarp_info['size_x']
+        size_y = swarp_info['size_y']
+        tiledir = swarp_info['tiledir']
+        # skip if file already exists (for debugging)
+        if not False: #os.path.exists(imageout_name):
+            # tile images taken on same night
+            bash('swarp %s -c %s -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s -NTHREADS 1 -CENTER %s,%s -PIXEL_SCALE %f -IMAGE_SIZE %d,%d -RESAMPLE_DIR %s' % (swarp_list,self.swarp_file_nite,imageout_name,weightout_name,ra_cent,dec_cent,ps,size_x,size_y,tiledir))
+        for remove_path in swarp_list.split():
+            safe_rm(remove_path, self.debug_mode)
+        for remove_path in weight_list.split():
+            safe_rm(remove_path, self.debug_mode)
+        return
 
     def combine_night(self,file_info,tile_head,num_threads):
         # combine images taken on same night into single tile
@@ -113,6 +143,7 @@ class Pipeline:
         dec_cent = tile_head['DEC_CENT'][0] # arcseconds
         file_list_out = []
         # nite loop
+        swarp_info = []
         for nite in np.unique(file_info["nite"]):
             # get images on same taken night
             file_info_nite = file_info[file_info["nite"] == nite]
@@ -123,19 +154,18 @@ class Pipeline:
             chip = imageout_name.split('_c')[1].split('_')[0]
             imageout_name = imageout_name.replace('_c'+chip+'_','_')
             weightout_name = weight_list.split()[-1].replace('_c'+chip+'_','_')
-            # tile images taken on same night
-            bash('swarp %s -c %s -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s -NTHREADS %d -CENTER %s,%s -PIXEL_SCALE %f -IMAGE_SIZE %d,%d -RESAMPLE_DIR %s' % (swarp_list,self.swarp_file_nite,imageout_name,weightout_name,num_threads,ra_cent,dec_cent,ps,size_x,size_y,tiledir))
-            for remove_path in swarp_list.split():
-                safe_rm(remove_path)
-            for remove_path in weight_list.split():
-                safe_rm(remove_path)
-            # new combined file info array
+            swarp_info.append((swarp_list,self.swarp_file_nite,imageout_name,weightout_name,ra_cent,dec_cent,ps,size_x,size_y,tiledir))
+            # output nitely arrays
             mjd = np.median(np.unique(file_info_nite["mjd_obs"]))
             sky_noise = np.median(file_info_nite["skysigma"])
             psf_fwhm = np.median(file_info_nite["psf_fwhm"])
             mag_zero = np.median(file_info_nite["mag_zero"])
             sigma_mag_zero = np.median(file_info_nite["sigma_mag_zero"])
             file_list_out.append((imageout_name,mjd,psf_fwhm,sky_noise,mag_zero,sigma_mag_zero))
+        # Multiproccess SWARP
+        dtype_info = [("swarp_list","|S50000"),("swarp_file_nite","|S200"),("imageout_name","|S200"),("weightout_name","|S200"),("ra_cent",float),("dec_cent",float),("ps",float),("size_x",float),("size_y",float),("tiledir","|S200")]
+        clean_tpool(self.swarp_nite,np.array(swarp_info,dtype_info),num_threads)
+        # nite loop
         dtype_info = [('path','|S200'),('mjd_obs',float),('psf_fwhm',float),('skysigma',float),('mag_zero',float),('sigma_mag_zero',float)]
         file_info_out = np.array(file_list_out,dtype_info)
         return file_info_out
@@ -151,9 +181,9 @@ class Pipeline:
         # symbolic link for header geometry
         bash('ln -s %s %s' % (template_sci,file_header))
         bash('swarp %s -c %s -NTHREADS %d -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s.weight.fits -RESAMPLE_DIR %s' % (filename_in,self.swarp_file,1,filename_out,filename_out[0:-5],path_root))
-        safe_rm(filename_in)
-        safe_rm(filename_in[0:-5]+".weight.fits")
-        safe_rm(file_header)
+        safe_rm(filename_in, self.debug_mode)
+        safe_rm(filename_in[0:-5]+".weight.fits", self.debug_mode)
+        safe_rm(file_header, self.debug_mode)
         return filename_in
 
 
@@ -165,7 +195,6 @@ class Pipeline:
         diff_cat = cat_info['file']
         mjds = cat_info['mjd']
         # assumes all catalogs have same number of lines (detections)
-        # true if doing forced photometry on template image
         # template catalog
         num,ra,dec,f3,f4,f5,ferr3,ferr4,ferr5 = np.loadtxt(template_cat, unpack=True)
         num_list = []; mjd_list = []
@@ -221,9 +250,10 @@ class Pipeline:
         path_root = os.path.dirname(diff_cat[0])
         path_dat = os.path.join(path_root,'cat.dat')
         dat = [num_list, mjd_list, ra_list, dec_list, m3_list, m4_list, m5_list, merr3_list, merr4_list, merr5_list]
-        np.savetxt(path_dat,np.array(dat).T,fmt='%d %f %f %f %f %f %f %f %f %f')
-        safe_rm(template_cat)
-        [safe_rm(str(i)) for i in diff_cat]
+        hdr = 'num mjd ra dec m3 m4 m5 merr3 merr4 merr5'
+        np.savetxt(path_dat,np.array(dat).T,fmt='%d %f %f %f %f %f %f %f %f %f',header=hdr)
+        safe_rm(template_cat, self.debug_mode)
+        [safe_rm(str(i), self.debug_mode) for i in diff_cat]
         return
 
 
@@ -239,8 +269,8 @@ class Pipeline:
         outfile_cat = file_root + "_diff.cat"
         # SExtractor double image mode
         code = bash('sex %s,%s -WEIGHT_IMAGE %s,%s  -CATALOG_NAME %s -c %s -MAG_ZEROPOINT %f %s' % (template_sci,outfile_sci,template_wgt,outfile_wgt,outfile_cat,self.sex_file,self.template_mag_zero,self.sex_pars))
-        safe_rm(outfile_sci)
-        safe_rm(outfile_wgt)
+        safe_rm(outfile_sci, self.debug_mode)
+        safe_rm(outfile_wgt, self.debug_mode)
         if code != 0 or not os.path.exists(outfile_cat): return None
         info_list = (outfile_cat, mjd)
         dtype = [('file','|S200'),('mjd',float)]
@@ -306,7 +336,6 @@ class Pipeline:
         file_info = clean_pool(difference,file_info,num_threads)
         # forced photometry
         print('Performing forced photometry.')
-        print(file_info)
         cat_list = clean_tpool(self.forced_photometry,file_info,num_threads)
         # get objects from template file
         template_cat = os.path.join(self.tile_dir,'template.cat')
@@ -315,12 +344,12 @@ class Pipeline:
         print('Generating light curves.')
         self.generate_light_curves(cat_list)
         # clean directory
-        safe_rm(template_cat)
+        safe_rm(template_cat, self.debug_mode)
         for cat_file in cat_list:
             safe_rm(str(cat_file['file']))
             safe_rm('%s.head' % template_sci[0:-5])
         # remove template files
-        safe_rm(template_sci)
-        safe_rm(template_wgt)
-        safe_rm(template_sci[0:-5]+".head")
+        safe_rm(template_sci, self.debug_mode)
+        safe_rm(template_wgt, self.debug_mode)
+        safe_rm(template_sci[0:-5]+".head", self.debug_mode)
         return
