@@ -22,7 +22,7 @@ def fromIAU(name):
 
 def single_header(filename):
     hdul = fits.open(filename,ignore_missing_end=True)
-    hdu = fits.PrimaryHDU(data=hdul[1].data) #,header=hdul[1].header)
+    hdu = fits.PrimaryHDU(data=hdul[1].data, header=hdul[1].header)
     hdu.writeto(filename,clobber=True,output_verify='ignore')
     return
 
