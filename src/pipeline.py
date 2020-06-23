@@ -75,7 +75,7 @@ class Pipeline:
     def download_image(self,info_list):
         # download image from image archive server
     	url = info_list['path'] # Get URL
-        local_path = os.path.join(self.tile_dir,url.split("/")[-1])
+        local_path = os.path.join(self.tile_dir,os.path.basename(url))
         if not os.path.exists(local_path):
             command = 'wget -nc --no-check-certificate -q --user %s --password %s %s -P %s'
             args = (self.usr,self.psw,url,self.tile_dir)
@@ -154,7 +154,7 @@ class Pipeline:
             ccd = int(s[1][:2])
             template_sci = os.path.join(path_root,"template_%d.fits"%ccd)
         # symbolic link for header geometry
-        if True: #not os.path.exists(filename_out):
+        if not os.path.exists(filename_out):
             bash('ln -s %s %s' % (template_sci,file_header))
             bash('swarp %s -c %s -NTHREADS %d -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s.weight.fits -RESAMPLE_DIR %s' % (filename_in,self.swarp_file,1,filename_out,filename_out[0:-5],path_root))
         safe_rm(filename_in, self.debug_mode)
@@ -252,7 +252,6 @@ class Pipeline:
         return info_list
 
     def run_ccd(self,image_list,num_threads,fermigrid=False):
-        return
         # given list of single-epoch image filenames in same tile or region, execute pipeline
         print('Pooling %d single-epoch images to %d threads.' % (len(image_list),num_threads))
         print('Downloading images, making weight maps and image masks.')
@@ -261,7 +260,6 @@ class Pipeline:
         file_info = clean_tpool(self.make_weight, file_info, num_threads)
         print('Making templates and aligning frames.')
         # CCD loop
-        print(np.sort(np.unique(file_info['ccd'])))
         for ccd in np.sort(np.unique(file_info['ccd'])):
             print('Running CCD %d.' % ccd)
             file_info = file_info[file_info['ccd']==ccd]

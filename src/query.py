@@ -93,8 +93,9 @@ class Query:
             # Form URL and data type
             ccd_list = [f["filename"].split('_c')[1][:2] for f in info_list]
             url_list = [base_url+f["path"]+"/"+f["filename"]+f["compression"] for f in info_list]
-            dtype = [("path","|S2000"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float),("ccd",int)]
-            info_list = np.array([url_list,info_list["psf_fwhm"],info_list["skysigma"],info_list["mjd_obs"],ccd_list],dtype=dtype)
+            dtype = [("path","|S300"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float),("ccd",int)]
+            info_list = list(zip(url_list,info_list["psf_fwhm"],info_list["skysigma"],info_list["mjd_obs"],ccd_list))
+            info_list = np.array(info_list,dtype=dtype)
             return info_list
         else:
             return None
