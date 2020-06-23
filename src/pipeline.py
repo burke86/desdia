@@ -259,9 +259,9 @@ class Pipeline:
             f3 = np.sum([f3,df3],axis=0)
             f4 = np.sum([f4,df4],axis=0)
             f5 = np.sum([f5,df5],axis=0)
-            ferr3 = np.sqrt(ferr3**2 + dferr3**2)
-            ferr4 = np.sqrt(ferr4**2 + dferr4**2)
-            ferr5 = np.sqrt(ferr5**2 + dferr5**2)
+            ferr3 = np.sqrt(np.sum(ferr3**2,dferr3**2),axis=0)
+            ferr4 = np.sqrt(np.sum(ferr4**2,dferr4**2),axis=0)
+            ferr5 = np.sqrt(np.sum(ferr5**2,dferr5**2),axis=0)
             # append arrays
             num_list.append(num)
             mjd_list.append(mjd)
@@ -324,8 +324,8 @@ class Pipeline:
         file_info = clean_tpool(self.make_weight, file_info, num_threads)
         print('Making templates and aligning frames.')
         # CCD loop
-        file_info = np.sort(file_info, order='ccd')
-        for ccd in np.unique(file_info['ccd']):
+        print(np.sort(np.unique(file_info['ccd'])))
+        for ccd in np.sort(np.unique(file_info['ccd'])):
             print('Running CCD %d.' % ccd)
             file_info = file_info[file_info['ccd']==ccd]
             self.make_templates(file_info,num_threads)
@@ -362,32 +362,9 @@ class Pipeline:
         if len(file_info) < self.min_epoch:
             print("Not enough epochs in tile.")
             sys.exit(0)
-        # make template
-        file_info_Y1 = file_info[(file_info["mjd_obs"]>56400) & (file_info["mjd_obs"]<56830)]
-        file_info_Y2 = file_info[(file_info["mjd_obs"]>56830) & (file_info["mjd_obs"]<57200)]
-        file_info_Y3 = file_info[(file_info["mjd_obs"]>57200) & (file_info["mjd_obs"]<57550)]
-        file_info_Y4 = file_info[(file_info["mjd_obs"]>57550) & (file_info["mjd_obs"]<57930)]
-        file_info_Y5 = file_info[(file_info["mjd_obs"]>57930) & (file_info["mjd_obs"]<58290)]
-        file_info_Y6 = file_info[(file_info["mjd_obs"]>58290)]
-        # make template from season with lowest mean sky noise
-        sky_sigma_Y1 = np.mean(file_info_Y1["skysigma"])
-        sky_sigma_Y2 = np.mean(file_info_Y2["skysigma"])
-        sky_sigma_Y3 = np.mean(file_info_Y3["skysigma"])
-        sky_sigma_Y4 = np.mean(file_info_Y4["skysigma"])
-        sky_sigma_Y5 = np.mean(file_info_Y5["skysigma"])
-        sky_sigma_Y6 = np.mean(file_info_Y6["skysigma"])
-        file_info_seasons = [file_info_Y1,file_info_Y2,file_info_Y3,file_info_Y4,file_info_Y5,file_info_Y6]
-        sky_sigma_seasons = [sky_sigma_Y1,sky_sigma_Y2,sky_sigma_Y3,sky_sigma_Y4,sky_sigma_Y5,sky_sigma_Y6]
-        template_season = np.nanargmin(sky_sigma_seasons)
-        print("Making template with Y%d images." % template_season)
-        file_info_template = file_info_seasons[template_season]
-        if self.program == "supernova":
-            # select sky noise < 2.5*(min sky noise), follows Kessler et al. (2015)
-            file_info_template = file_info_template[file_info_template["skysigma"]<2.5*np.min(file_info_template["skysigma"])]
-            # after this constraint, use up to 10 images with smallest PSF
-            file_info_template = np.sort(file_info_template,order="psf_fwhm")
-            if len(file_info_template) > 10:
-                file_info_template = file_info_template[:10]
+        # SPLIT INTO REGIONS
+        # make template from Y3
+        file_info_template = file_info[(file_info["mjd_obs"]>57200) & (file_info["mjd_obs"]<57550)]
         template_sci = os.path.join(self.tile_dir,'template.fits')
         template_wgt = os.path.join(self.tile_dir,'template.weight.fits')
         # get lists for template creation and projection

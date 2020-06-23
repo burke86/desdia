@@ -73,9 +73,25 @@ class Query:
         tilename_list = np.array(info_list,dtype=dtype)
         tilename_list = np.unique(tilename_list)
         # save for future use
-        #np.save("tilename_list",tilename_list)
-        #print(len(tilename_list))
         return tilename_list
+
+
+    def get_image_info_field(self,band='g',field='SN-C3'):
+        # get Y1-Y6 images
+        get_list = "select f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs, e.nite, z.mag_zero, z.sigma_mag_zero from y6a1_file_archive_info f, y6a1_image i, y6a1_exposure e, y6a1_qa_summary s, y6a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and e.field=:field and e.program='supernova' and i.band=:band and z.version=:version and e.mjd_obs>56400"
+        self.cur.execute(get_list,field=field,band=band,version="y6a1_v2.1")
+        info_list = self.cur.fetchall()
+        # get SV images
+        get_list = "select f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs, e.nite, z.mag_zero, z.sigma_mag_zero from y4a1_file_archive_info f, y4a1_image i, y4a1_exposure e, y4a1_qa_summary s, y4a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and e.field=:field and e.program='supernova' and i.band=:band and z.version=:version and e.mjd_obs<56400"
+        self.cur.execute(get_list,field=field,band=band,version="v2.0")
+        info_list += self.cur.fetchall()
+        # TODO: Search misc fields
+        if len(info_list) > 0:
+            dtype_info = [("filename","|S41"),("path","|S200"),("compression","|S4"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float),('nite',int),('mag_zero',float),('sigma_mag_zero',float)]
+            info_list = np.array(info_list,dtype=dtype_info)
+            return info_list
+        else:
+            return None
 
 
     def get_image_info(self,file_info,program="any"):
@@ -106,7 +122,6 @@ class Query:
         get_list = get_list[0:-4]
         self.cur.execute(get_list,version="v2.0")
         info_list += self.cur.fetchall()
-        # return
         if len(info_list) > 0:
             dtype_info = [("filename","|S41"),("path","|S200"),("compression","|S4"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float),('nite',int),('mag_zero',float),('sigma_mag_zero',float)]
             info_list = np.array(info_list,dtype=dtype_info)

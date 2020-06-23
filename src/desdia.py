@@ -37,13 +37,20 @@ def start_tile(tilename,program='survey',band='g',work_dir='./work',out_dir=None
         out_dir = os.path.join(tile_dir,band)
     # set up database
     query_sci = query.Query('db-dessci')
-    print("Querying single-epoch images for tile %s." % tilename)
+    print("Querying single-epoch images for tile/field %s." % tilename)
     # get reduced filenames
-    file_list = query_sci.get_filenames_from_tile(tilename,band)
-    if file_list is None:
+    if program == 'survey':
+        file_list = query_sci.get_filenames_from_tile(tilename,band)
+        if file_list is None:
+            print("No images found.")
+            return
+        # get archive urls and other info
+        image_list = query_sci.get_image_info(file_list,program)
+    elif program == 'supernova': # tilename is the fieldname in this case
+        image_list = query_sci.get_image_info_field(band,tilename)
+    if image_list is None:
+        print("No images found.")
         return
-    # get archive urls and other info
-    image_list = query_sci.get_image_info(file_list,program)
     # get coadd objects within tile geometry
     print("Querying tile geometry.")
     tile_head = query_sci.get_tile_head(tilename,band)
