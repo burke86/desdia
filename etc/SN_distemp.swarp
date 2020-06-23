@@ -32,9 +32,9 @@ PROJECTION_TYPE        TAN             # Any WCS projection code or NONE
 PROJECTION_ERR         0.001           # Maximum projection error (in output
                                        # pixels), or 0 for no approximation
 CENTER_TYPE            ALL             # MANUAL, ALL or MOST
-CENTER         00:00:00.0, +00:00:00.0 # Coordinates of the image center
+#CENTER         00:00:00.0, +00:00:00.0 # Coordinates of the image center
 PIXELSCALE_TYPE        MEDIAN          # MANUAL,FIT,MIN,MAX or MEDIAN
-PIXEL_SCALE            0.0             # Pixel scale
+PIXEL_SCALE            0.263             # Pixel scale
 IMAGE_SIZE             0               # Image size (0 = AUTOMATIC)
  
 #-------------------------------- Resampling ----------------------------------
@@ -80,9 +80,9 @@ BACK_FILTTHRESH        0.0             # Threshold above which the background-
 #------------------------------ Memory management -----------------------------
  
 VMEM_DIR               .               # Directory path for swap files
-VMEM_MAX               2047            # Maximum amount of virtual memory (MB)
-MEM_MAX                1024             # Maximum amount of usable RAM (MB)
-COMBINE_BUFSIZE        1024              # RAM dedicated to co-addition(MB)
+VMEM_MAX               512            # Maximum amount of virtual memory (MB)
+MEM_MAX                256             # Maximum amount of usable RAM (MB)
+COMBINE_BUFSIZE        256              # RAM dedicated to co-addition(MB)
  
 #------------------------------ Miscellaneous ---------------------------------
  
@@ -96,7 +96,7 @@ WRITE_XML              N               # Write XML file (Y/N)?
 XML_NAME               swarp.xml       # Filename for XML output
 #XSL_URL                file:///usr/local/share/swarp/swarp.xsl
                                        # Filename for XSL style-sheet
-VERBOSE_TYPE           FULL          # QUIET,NORMAL or FULL
+VERBOSE_TYPE           NORMAL          # QUIET,NORMAL or FULL
 NNODES                 1               # Number of nodes (for clusters)
 NODE_INDEX             0               # Node index (for clusters)
  

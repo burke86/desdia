@@ -10,23 +10,25 @@ def difference(file_info):
     top_dir = '/'.join(os.path.dirname(top_path).split('/')[0:-1])
     hotpants_file = os.path.join(top_dir,'etc/DES.hotpants')
     local_path = str(file_info["path"])
+    ccd = file_info["ccd"]
     file_root = local_path[0:-5]
     path_root = os.path.dirname(local_path)
     file_sci = file_root + "_proj.fits"
     file_wgt = file_root + "_proj.weight.fits"
     outfile_sci = file_root + "_proj_diff.fits"
     outfile_wgt = file_root + "_proj_diff.weight.fits"
-    template_sci = os.path.join(path_root,"template.fits")
-    template_wgt = os.path.join(path_root,"template.weight.fits")
+    template_sci = os.path.join(path_root,"template_c%d.fits"%ccd)
+    template_wgt = os.path.join(path_root,"template_c%d.weight.fits"%ccd)
     hotpants_pars = ''.join(open(hotpants_file,'r').readlines())
     # HOTPANTS input parameters
-    code = bash('hotpants -inim %s -ini %s -tmplim %s -tni %s -outim %s -oni %s -useWeight %s' % (file_sci,file_wgt,template_sci,template_wgt,outfile_sci,outfile_wgt,hotpants_pars))
-    safe_rm(file_sci)
-    safe_rm(file_wgt)
-    # Handle HOTPANTS fatal error
-    if code != 0:
-        print('***HOTPANTS FATAL ERROR**')
-        return None
+    if not os.path.exists(outfile_sci):
+        code = bash('hotpants -inim %s -ini %s -tmplim %s -tni %s -outim %s -oni %s -useWeight %s' % (file_sci,file_wgt,template_sci,template_wgt,outfile_sci,outfile_wgt,hotpants_pars))
+        #safe_rm(file_sci)
+        #safe_rm(file_wgt)
+        # Handle HOTPANTS fatal error
+        if code != 0:
+            print('***HOTPANTS FATAL ERROR**')
+            return None
     return file_info
 
 
@@ -76,8 +78,10 @@ class Pipeline:
         archive_path = os.path.join(filepath,filename+compression)
         # download image from image archive server
     	url = os.path.join('https://desar2.cosmology.illinois.edu/DESFiles/desarchive/',archive_path)
-        bash('wget -nc --no-check-certificate -q --user %s --password %s %s -P %s' % (self.usr,self.psw,url,self.tile_dir),True)
         local_path = os.path.join(self.tile_dir,archive_path.split("/")[-1])
+        if not os.path.exists(local_path):
+            print(local_path)
+            #bash('wget -nc --no-check-certificate -q --user %s --password %s %s -P %s' % (self.usr,self.psw,url,self.tile_dir),True)
         dtype_info = [("path","|S200"),("mjd_obs",float),("nite",int),("psf_fwhm",float),("skysigma",float),("mag_zero",float),("sigma_mag_zero",float)]
         info_list = (local_path,archive_info["mjd_obs"],archive_info["nite"],archive_info["psf_fwhm"],archive_info["skysigma"],archive_info["mag_zero"],archive_info["sigma_mag_zero"])
         info_list = np.array(info_list,dtype=dtype_info)
@@ -92,6 +96,7 @@ class Pipeline:
             file_root = local_path[0:-8]
             file_sci = file_root + ".fits"
             file_wgt = file_root + ".weight.fits"
+            ccd = os.path.basename(file_root).split('_c')[1][:2]
             # skip if file already exists (for debugging)
             if not os.path.exists(file_sci):
                 # make weight maps and mask
@@ -103,13 +108,44 @@ class Pipeline:
                 single_header(file_sci)
                 single_header(file_wgt)
                 # create final list
-            dtype_info = [("path","|S200"),("mjd_obs",float),("nite",int),("psf_fwhm",float),("skysigma",float),("mag_zero",float),("sigma_mag_zero",float)]
-            info_list = (file_sci,archive_info["mjd_obs"],archive_info["nite"],archive_info["psf_fwhm"],archive_info["skysigma"],archive_info["mag_zero"],archive_info["sigma_mag_zero"])
+            dtype_info = [("path","|S200"),("ccd",int),("mjd_obs",float),("nite",int),("psf_fwhm",float),("skysigma",float),("mag_zero",float),("sigma_mag_zero",float)]
+            info_list = (file_sci,ccd,archive_info["mjd_obs"],archive_info["nite"],archive_info["psf_fwhm"],archive_info["skysigma"],archive_info["mag_zero"],archive_info["sigma_mag_zero"])
             info_list = np.array(info_list,dtype=dtype_info)
             safe_rm(local_path, self.debug_mode)
             return info_list
         except:
             return None
+
+    def make_templates(self, file_info, num_threads):
+        # Make templates (file_info should be the same ccd)
+        dtype_info = [("path","|S200"),("ccd",int),("mjd_obs",float),("nite",int),("psf_fwhm",float),("skysigma",float),("mag_zero",float),("sigma_mag_zero",float)]
+        file_info = np.array(file_info,dtype=dtype_info)
+        # Use Y3 images
+        ccd = file_info["ccd"][0]
+        file_info_template = file_info[(file_info["mjd_obs"]>57200) & (file_info["mjd_obs"]<57550)]
+        # select sky noise < 2.5*(min sky noise), follows Kessler et al. (2015)
+        file_info_template = file_info_template[file_info_template["skysigma"]<2.5*np.nanmin(file_info_template["skysigma"])]
+        # after this constraint, use up to 10 images with smallest PSF
+        file_info_template = np.sort(file_info_template,order="psf_fwhm")
+        if len(file_info_template) > 10:
+            file_info_template = file_info_template[:10]
+        template_sci = os.path.join(self.tile_dir,'template_c%d.fits' % ccd)
+        template_wgt = os.path.join(self.tile_dir,'template_c%d.weight.fits' % ccd)
+        template_cat = os.path.join(self.tile_dir,'template_c%d.cat' % ccd)
+        # get lists for template creation and projection
+        swarp_all_list = " ".join(file_info["path"])
+        swarp_temp_list = " ".join(file_info_template["path"])
+        # create template (coadd of best frames)
+        s = swarp_temp_list.split()
+        resample_dir = os.path.dirname(template_sci)
+        if True: #not os.path.exists(template_sci):
+            bash('ln -s %s %s.head' % (s[0],template_sci[0:-5]))
+            bash('swarp %s -c %s -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s -NTHREADS 1 -RESAMPLE_DIR %s' % (swarp_temp_list,self.swarp_file,template_sci,template_wgt,resample_dir))
+        # Align
+        clean_tpool(self.align,swarp_all_list.split(),num_threads)
+        # Extract sources
+        bash('sex %s -WEIGHT_IMAGE %s  -CATALOG_NAME %s -c %s -MAG_ZEROPOINT 22.5 %s' % (template_sci,template_wgt,template_cat,self.sex_file,self.sex_pars))
+        return
 
     def swarp_nite(self, swarp_info):
         swarp_list = swarp_info['swarp_list']
@@ -120,11 +156,11 @@ class Pipeline:
         ra_cent = swarp_info['ra_cent']
         dec_cent = swarp_info['dec_cent']
         ps = swarp_info['ps']
-        size_x = swarp_info['size_x']
-        size_y = swarp_info['size_y']
+        size_x = 4096 # swarp_info['size_x']
+        size_y = 2048 # swarp_info['size_y']
         tiledir = swarp_info['tiledir']
         # skip if file already exists (for debugging)
-        if not False: #os.path.exists(imageout_name):
+        if not os.path.exists(imageout_name):
             # tile images taken on same night
             bash('swarp %s -c %s -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s -NTHREADS 1 -CENTER %s,%s -PIXEL_SCALE %f -IMAGE_SIZE %d,%d -RESAMPLE_DIR %s' % (swarp_list,self.swarp_file_nite,imageout_name,weightout_name,ra_cent,dec_cent,ps,size_x,size_y,tiledir))
         for remove_path in swarp_list.split():
@@ -178,9 +214,15 @@ class Pipeline:
         filename_out = file_root+"_proj.fits"
         file_header = file_root+"_proj.head"
         template_sci = os.path.join(path_root,"template.fits")
+        # If per-ccd
+        s = os.path.basename(filename_out).split('_c')
+        if len(s) > 0:
+            ccd = int(s[1][:2])
+            template_sci = os.path.join(path_root,"template_%d.fits"%ccd)
         # symbolic link for header geometry
-        bash('ln -s %s %s' % (template_sci,file_header))
-        bash('swarp %s -c %s -NTHREADS %d -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s.weight.fits -RESAMPLE_DIR %s' % (filename_in,self.swarp_file,1,filename_out,filename_out[0:-5],path_root))
+        if True: #not os.path.exists(filename_out):
+            bash('ln -s %s %s' % (template_sci,file_header))
+            bash('swarp %s -c %s -NTHREADS %d -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s.weight.fits -RESAMPLE_DIR %s' % (filename_in,self.swarp_file,1,filename_out,filename_out[0:-5],path_root))
         safe_rm(filename_in, self.debug_mode)
         safe_rm(filename_in[0:-5]+".weight.fits", self.debug_mode)
         safe_rm(file_header, self.debug_mode)
@@ -191,7 +233,8 @@ class Pipeline:
         # generates light curve files from list of sextractor catalogs
         # with forced photometry on the template image
         # measure template flux to add to difference flux
-        template_cat = os.path.join(self.tile_dir,'template.cat')
+        ccd = int(cat_info['ccd'])
+        template_cat = os.path.join(self.tile_dir,'template_c%d.cat'%ccd)
         diff_cat = cat_info['file']
         mjds = cat_info['mjd']
         # assumes all catalogs have same number of lines (detections)
@@ -199,9 +242,10 @@ class Pipeline:
         num,ra,dec,f3,f4,f5,ferr3,ferr4,ferr5 = np.loadtxt(template_cat, unpack=True)
         num_list = []; mjd_list = []
         ra_list = []; dec_list = []
-        m3_list = []; merr3_list = []
-        m4_list = []; merr4_list = []
-        m5_list = []; merr5_list = []
+        f3_list = []; ferr3_list = []
+        f4_list = []; ferr4_list = []
+        f5_list = []; ferr5_list = []
+        print(np.shape(f3))
         # difference catalog
         for i, diff_cat_file in enumerate(diff_cat):
             num,ra,dec,df3,df4,df5,dferr3,dferr4,dferr5 = np.loadtxt(str(diff_cat_file), unpack=True)
@@ -211,41 +255,35 @@ class Pipeline:
             df4[np.abs(df4)<1e-29] = np.nan
             df5[np.abs(df5)<1e-29] = np.nan
             # save light curves
-            f3 = f3 + df3
-            f4 = f4 + df4
-            f5 = f5 + df5
+            print(np.shape([f3,df3]))
+            f3 = np.sum([f3,df3],axis=0)
+            f4 = np.sum([f4,df4],axis=0)
+            f5 = np.sum([f5,df5],axis=0)
             ferr3 = np.sqrt(ferr3**2 + dferr3**2)
             ferr4 = np.sqrt(ferr4**2 + dferr4**2)
             ferr5 = np.sqrt(ferr5**2 + dferr5**2)
-            # magnitudes
-            m3 = self.template_mag_zero - 2.5*np.log10(f3)
-            m4 = self.template_mag_zero - 2.5*np.log10(f4)
-            m5 = self.template_mag_zero - 2.5*np.log10(f5)
-            merr3 = 2.5/np.log(10)*ferr3/f3
-            merr4 = 2.5/np.log(10)*ferr4/f4
-            merr5 = 2.5/np.log(10)*ferr5/f5
             # append arrays
             num_list.append(num)
             mjd_list.append(mjd)
             ra_list.append(ra)
             dec_list.append(dec)
-            m3_list.append(m3)
-            m4_list.append(m4)
-            m5_list.append(m5)
-            merr3_list.append(merr3)
-            merr4_list.append(merr4)
-            merr5_list.append(merr5)
+            f3_list.append(f3)
+            f4_list.append(f4)
+            f5_list.append(f5)
+            ferr3_list.append(ferr3)
+            ferr4_list.append(ferr4)
+            ferr5_list.append(ferr5)
         # flatten and save data
         num_list = np.array(num_list).flatten()
         mjd_list = np.array(mjd_list).flatten()
         ra_list = np.array(ra_list).flatten()
         dec_list = np.array(dec_list).flatten()
-        m3_list = np.array(m3_list).flatten()
-        m4_list = np.array(m4_list).flatten()
-        m5_list = np.array(m5_list).flatten()
-        merr3_list = np.array(merr3_list).flatten()
-        merr4_list = np.array(merr4_list).flatten()
-        merr5_list = np.array(merr5_list).flatten()
+        f3_list = np.array(f3_list).flatten()
+        f4_list = np.array(f4_list).flatten()
+        f5_list = np.array(f5_list).flatten()
+        ferr3_list = np.array(ferr3_list).flatten()
+        ferr4_list = np.array(ferr4_list).flatten()
+        ferr5_list = np.array(ferr5_list).flatten()
         # save
         path_root = os.path.dirname(diff_cat[0])
         path_dat = os.path.join(path_root,'cat.dat')
@@ -260,22 +298,56 @@ class Pipeline:
     def forced_photometry(self,file_info):
         local_path = str(file_info["path"])
         mjd = file_info["mjd_obs"]
+        ccd = file_info["ccd"]
         file_root = local_path[0:-5]
         path_root = os.path.dirname(local_path)
         outfile_sci = file_root + "_proj_diff.fits"
         outfile_wgt = file_root + "_proj_diff.weight.fits"
-        template_sci = os.path.join(path_root,"template.fits")
-        template_wgt = os.path.join(path_root,"template.weight.fits")
+        template_sci = os.path.join(path_root,"template_%d.fits"%ccd)
+        template_wgt = os.path.join(path_root,"template_%d.weight.fits"%ccd)
         outfile_cat = file_root + "_diff.cat"
         # SExtractor double image mode
-        code = bash('sex %s,%s -WEIGHT_IMAGE %s,%s  -CATALOG_NAME %s -c %s -MAG_ZEROPOINT %f %s' % (template_sci,outfile_sci,template_wgt,outfile_wgt,outfile_cat,self.sex_file,self.template_mag_zero,self.sex_pars))
+        code = bash('sex %s,%s -WEIGHT_IMAGE %s,%s  -CATALOG_NAME %s -c %s -MAG_ZEROPOINT 22.5 %s' % (template_sci,outfile_sci,template_wgt,outfile_wgt,outfile_cat,self.sex_file,self.sex_pars))
         safe_rm(outfile_sci, self.debug_mode)
         safe_rm(outfile_wgt, self.debug_mode)
         if code != 0 or not os.path.exists(outfile_cat): return None
-        info_list = (outfile_cat, mjd)
-        dtype = [('file','|S200'),('mjd',float)]
+        info_list = (outfile_cat, mjd, file_info["ccd"])
+        dtype = [('file','|S200'),('mjd',float),('ccd',int)]
         return np.array(info_list,dtype=dtype)
 
+    def run_ccd(self,image_list,num_threads,tile_head,fermigrid=False):
+        # given list of single-epoch image filenames in same tile or region, execute pipeline
+        print('Pooling %d single-epoch images to %d threads.' % (len(image_list),num_threads))
+        print('Downloading images, making weight maps and image masks.')
+        file_info = clean_tpool(self.download_image, image_list, num_threads)
+        print("Downloaded %d images" % len(file_info))
+        file_info = clean_tpool(self.make_weight, file_info, num_threads)
+        print('Making templates and aligning frames.')
+        # CCD loop
+        file_info = np.sort(file_info, order='ccd')
+        for ccd in np.unique(file_info['ccd']):
+            print('Running CCD %d.' % ccd)
+            file_info = file_info[file_info['ccd']==ccd]
+            self.make_templates(file_info,num_threads)
+            # make difference images
+            print('Differencing images.')
+            file_info = clean_pool(difference,file_info,num_threads)
+            # forced photometry
+            print('Performing forced photometry.')
+            cat_list = clean_tpool(self.forced_photometry,file_info,num_threads)
+            # write lightcurve data
+            print('Generating light curves.')
+            self.generate_light_curves(cat_list)
+            # clean directory
+            safe_rm(template_cat, self.debug_mode)
+            for cat_file in cat_list:
+                safe_rm(str(cat_file['file']))
+                safe_rm('%s.head' % template_sci[0:-5])
+            # remove template files
+            #safe_rm(template_sci, self.debug_mode)
+            #safe_rm(template_wgt, self.debug_mode)
+            #safe_rm(template_sci[0:-5]+".head", self.debug_mode)
+            return
 
     def run(self,image_list,num_threads,tile_head,fermigrid=False):
         # given list of single-epoch image filenames in same tile or region, execute pipeline

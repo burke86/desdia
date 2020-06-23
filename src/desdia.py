@@ -50,7 +50,8 @@ def start_tile(tilename,program='survey',band='g',work_dir='./work',out_dir=None
     des_pipeline = pipeline.Pipeline(band,program,query_sci.usr,query_sci.psw,tile_dir,out_dir,top_dir,debug_mode)
     num_threads = np.clip(threads,0,max_threads)
     print("Running pipeline.")
-    lc_files = des_pipeline.run(image_list,num_threads,tile_head,fermigrid)
+    lc_files = des_pipeline.run_ccd(image_list,num_threads,tile_head,fermigrid)
+    #lc_files = des_pipeline.run(image_list,num_threads,tile_head,fermigrid)
     # plot summary statistics and save data
     print('Compressing and transfering files.')
     # compress and transfer files
