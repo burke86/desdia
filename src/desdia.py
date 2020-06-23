@@ -11,7 +11,7 @@ from misc import toIAU
 from misc import bash
 from misc import clean_pool
 
-def start_tile(tilename,program='survey',band='g',work_dir='./work',out_dir=None,threads=1,debug_mode=False):
+def start_tile(tilename,band='g',work_dir='./work',out_dir=None,threads=1,debug_mode=False):
     # run pipeline on a tile
     max_threads = 32
     top_dir = None
@@ -39,41 +39,40 @@ def start_tile(tilename,program='survey',band='g',work_dir='./work',out_dir=None
     query_sci = query.Query('db-dessci')
     print("Querying single-epoch images for tile/field %s." % tilename)
     # get reduced filenames
-    if program == 'survey':
+    if tilename.startswith('DES'):
         file_list = query_sci.get_filenames_from_tile(tilename,band)
         if file_list is None:
             print("No images found.")
             return
         # get archive urls and other info
-        image_list = query_sci.get_image_info(file_list,program)
-    elif program == 'supernova': # tilename is the fieldname in this case
-        image_list = query_sci.get_image_info_field(band,tilename)
+        image_list = query_sci.get_image_info(file_list)
+        print("Querying tile geometery.")
+        tile_head = query_sci.get_tile_head(tilename,band)
+    elif tilename.startswith('SN-'): # tilename is the fieldname in this case
+        image_list = query_sci.get_image_info_field(tilename,band)
     if image_list is None:
         print("No images found.")
         return
     # get coadd objects within tile geometry
-    print("Querying tile geometry.")
-    tile_head = query_sci.get_tile_head(tilename,band)
-    des_pipeline = pipeline.Pipeline(band,program,query_sci.usr,query_sci.psw,tile_dir,out_dir,top_dir,debug_mode)
+    des_pipeline = pipeline.Pipeline(band,query_sci.usr,query_sci.psw,tile_dir,out_dir,top_dir,debug_mode)
     num_threads = np.clip(threads,0,max_threads)
     print("Running pipeline.")
-    lc_files = des_pipeline.run_ccd(image_list,num_threads,tile_head,fermigrid)
+    lc_files = des_pipeline.run_ccd(image_list,num_threads,fermigrid)
     #lc_files = des_pipeline.run(image_list,num_threads,tile_head,fermigrid)
     # plot summary statistics and save data
     print('Compressing and transfering files.')
     # compress and transfer files
-    os.chdir(work_dir)
-    if debug_mode == False:
-        bash("tar czf %s.tar.gz %s" % (tilename,tilename))
     if fermigrid == True:
+        os.chdir(work_dir)
+        bash("tar czf %s.tar.gz %s" % (tilename,tilename))
         bash("ifdh cp -D %s.tar.gz %s" % (tilename,xfer_dir))
     return
 
 def main():
     # set up arguments
     parser = argparse.ArgumentParser(description='Find AGN from photometric variability in surveys.')
-    parser.add_argument('-p','--program',nargs='+',type=str,default='survey',help="'supernova', 'survey', or 'legacy'")
-    parser.add_argument('-t','--tile',nargs='+',type=str,help='tilename')
+    parser.add_argument('tile',nargs='+',type=str,help='tile or field name (e.g. DES??? or SN-C3 or all_survey)')
+    #parser.add_argument('-p','--program',nargs='+',type=str,default='survey',help="'supernova', 'survey', or 'legacy'")
     parser.add_argument('-w','--work_dir',nargs='+',type=str,default='./work',help='work directory')
     parser.add_argument('-o','--out_dir',nargs='+',type=str,default=None,help='output directory')
     parser.add_argument('--grid',action='store_true',help='run for all tiles on fermigrid')
@@ -82,14 +81,14 @@ def main():
     parser.add_argument('-f','--filter',type=str,default='g',help='filter to use')
     parser.add_argument('-n','--threads',type=int,default=1,help='number of threads')
     args = parser.parse_args()
-    program = np.asscalar(np.asarray(args.program))
+    tile = np.asscalar(np.asarray(args.tile))
     band = np.asscalar(np.asarray(args.filter))
     work_dir = np.asscalar(np.asarray(args.work_dir))
     out_dir = np.asscalar(np.asarray(args.out_dir))
     threads = np.asscalar(np.asarray(args.threads))
     print("==============================================")
     print("On grid:        %s" % args.grid)
-    print("Program:        %s" % program)
+    print("Tile/field      %s" % tile)
     print("Band:           %s" % band)
     print("Work directory: %s" % work_dir)
     print("Threads:        %s" % threads)
@@ -104,25 +103,18 @@ def main():
         tile_info = np.load(os.path.join(os.environ["CONDOR_DIR_INPUT"],"tile_info.npy"))
         # use process number to select tile
         num_proc = int(os.environ["PROCESS"])
-        if program == "survey": # 12,966 tiles
+        if args.tile == "all_survey": # 12,966 tiles
             # Note: this is too many to submit to the grid (current limit is 10k)
             tile_list = query_sci.get_all_tilenames()
             tile = tile_info[num_proc][0]
-        elif program == "stripe82": # 652 tiles
+        elif args.tile == "stripe82": # 652 tiles
             select_dec = (abs(tile_info["dec_cent"])-tile_info["dec_size"])<1.266
             select_ra = ((tile_info["ra_cent"]-tile_info["ra_size"]) < 60) | ((tile_info["ra_cent"]+tile_info["ra_size"]) > 300.5)
             tile_info = tile_info[select_dec & select_ra]
             tile = tile_info[num_proc][0]
-            program = "survey"
-        start_tile(tile,program,band,work_dir,out_dir,threads,args.debug)
+        start_tile(tile,band,work_dir,out_dir,threads,args.debug)
     # single-tile mode
-    elif args.tile is not None:
-        # start tile
-        tile = np.asscalar(np.asarray(args.tile))
-        start_tile(tile,program,band,work_dir,out_dir,threads,args.debug)
-    else:
-        # none specified
-        parser.error('Must specify --tile.')
+    start_tile(tile,band,work_dir,out_dir,threads,args.debug)
     return
 
 if __name__ == "__main__":
