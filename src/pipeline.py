@@ -76,10 +76,12 @@ class Pipeline:
         # download image from image archive server
     	url = info_list['path'] # Get URL
         local_path = os.path.join(self.tile_dir,os.path.basename(url))
-        if not os.path.exists(local_path):
+        if not os.path.exists(local_path[:-3]):
             command = 'wget -nc --no-check-certificate -q --user %s --password %s %s -P %s'
             args = (self.usr,self.psw,url,self.tile_dir)
             bash(command % args)
+        else:
+            print('***Image exists***')
         # Change to local_path
         info_list['path'] = local_path
         return info_list
@@ -102,6 +104,8 @@ class Pipeline:
                 # convert files to single-header format
                 single_header(file_sci)
                 single_header(file_wgt)
+            else:
+                print('***Weight image exists***')
             # Change to weight file
             info_list["path"] = file_sci
             safe_rm(local_path, self.debug_mode)
@@ -128,7 +132,7 @@ class Pipeline:
         # create template (coadd of best frames)
         s = swarp_temp_list.split()
         resample_dir = os.path.dirname(template_sci)
-        if True: #not os.path.exists(template_sci):
+        if not os.path.exists(template_sci):
             bash('ln -s %s %s.head' % (s[0],template_sci[0:-5]))
             command = 'swarp %s -c %s -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s -NTHREADS 1 -RESAMPLE_DIR %s'
             args = (swarp_temp_list,self.swarp_file,template_sci,template_wgt,resample_dir)
@@ -138,7 +142,7 @@ class Pipeline:
         # Extract sources
         command = 'sex %s -WEIGHT_IMAGE %s  -CATALOG_NAME %s -c %s -MAG_ZEROPOINT 22.5 %s'
         args = (template_sci,template_wgt,template_cat,self.sex_file,self.sex_pars)
-        bas(command % args)
+        bash(command % args)
         return
     
     def align(self,filename_in):
@@ -147,12 +151,8 @@ class Pipeline:
         path_root = os.path.dirname(filename_in)
         filename_out = file_root+"_proj.fits"
         file_header = file_root+"_proj.head"
-        template_sci = os.path.join(path_root,"template.fits")
-        # If per-ccd
-        s = os.path.basename(filename_out).split('_c')
-        if len(s) > 0:
-            ccd = int(s[1][:2])
-            template_sci = os.path.join(path_root,"template_%d.fits"%ccd)
+        ccd = int(os.path.basename(filename_in).split('_c')[1][:2])
+        template_sci = os.path.join(path_root,"template_c%d.fits"%ccd)
         # symbolic link for header geometry
         if not os.path.exists(filename_out):
             bash('ln -s %s %s' % (template_sci,file_header))
@@ -237,13 +237,13 @@ class Pipeline:
         path_root = os.path.dirname(local_path)
         outfile_sci = file_root + "_proj_diff.fits"
         outfile_wgt = file_root + "_proj_diff.weight.fits"
-        template_sci = os.path.join(path_root,"template_%d.fits"%ccd)
-        template_wgt = os.path.join(path_root,"template_%d.weight.fits"%ccd)
+        template_sci = os.path.join(path_root,"template_c%d.fits"%ccd)
+        template_wgt = os.path.join(path_root,"template_c%d.weight.fits"%ccd)
         outfile_cat = file_root + "_diff.cat"
         # SExtractor double image mode
         command = 'sex %s,%s -WEIGHT_IMAGE %s,%s  -CATALOG_NAME %s -c %s -MAG_ZEROPOINT 22.5 %s'
         args = (template_sci,outfile_sci,template_wgt,outfile_wgt,outfile_cat,self.sex_file,self.sex_pars)
-        bash(command % args)
+        code = bash(command % args)
         safe_rm(outfile_sci, self.debug_mode)
         safe_rm(outfile_wgt, self.debug_mode)
         if code != 0 or not os.path.exists(outfile_cat): return None
