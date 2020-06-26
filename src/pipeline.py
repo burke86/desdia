@@ -32,18 +32,19 @@ def difference(file_info):
         if code != 0:
             print('***HOTPANTS FATAL ERROR**')
             return None
+    else:
+        print('***Difference image exists**')
     return
 
 
 class Pipeline:
 
-    def __init__(self,bands,usr,psw,work_dir,out_dir,top_dir=None,min_epoch=5,debug_mode=False):
+    def __init__(self,bands,usr,psw,work_dir,out_dir,top_dir=None,debug_mode=False):
         self.bands = bands
         self.usr = usr
         self.psw = psw
         self.tile_dir = work_dir
         self.out_dir = out_dir
-        self.min_epoch = min_epoch
         self.debug_mode = debug_mode
         # setup directories
         top_path = os.path.abspath(__file__)
@@ -163,14 +164,14 @@ class Pipeline:
         return filename_in
 
 
-    def generate_light_curves(self,cat_info):
+    def generate_light_curves(self,info_list):
         # generates light curve files from list of sextractor catalogs
         # with forced photometry on the template image
         # measure template flux to add to difference flux
-        ccd = int(cat_info['ccd'])
+        ccd = info_list['ccd'][0]
         template_cat = os.path.join(self.tile_dir,'template_c%d.cat'%ccd)
-        diff_cat = cat_info['file']
-        mjds = cat_info['mjd']
+        diff_cat = info_list['path']
+        mjds = info_list['mjd_obs']
         # assumes all catalogs have same number of lines (detections)
         # template catalog
         num,ra,dec,f3,f4,f5,ferr3,ferr4,ferr5 = np.loadtxt(template_cat, unpack=True)
@@ -179,10 +180,12 @@ class Pipeline:
         f3_list = []; ferr3_list = []
         f4_list = []; ferr4_list = []
         f5_list = []; ferr5_list = []
-        print(np.shape(f3))
         # difference catalog
         for i, diff_cat_file in enumerate(diff_cat):
-            num,ra,dec,df3,df4,df5,dferr3,dferr4,dferr5 = np.loadtxt(str(diff_cat_file), unpack=True)
+            try:
+                num,ra,dec,df3,df4,df5,dferr3,dferr4,dferr5 = np.loadtxt(str(diff_cat_file), unpack=True)
+            except:
+                continue
             mjd = np.full(len(num), mjds[i])
             # bad photometry
             df3[np.abs(df3)<1e-29] = np.nan
@@ -193,9 +196,9 @@ class Pipeline:
             f3 = np.sum([f3,df3],axis=0)
             f4 = np.sum([f4,df4],axis=0)
             f5 = np.sum([f5,df5],axis=0)
-            ferr3 = np.sqrt(np.sum(ferr3**2,dferr3**2),axis=0)
-            ferr4 = np.sqrt(np.sum(ferr4**2,dferr4**2),axis=0)
-            ferr5 = np.sqrt(np.sum(ferr5**2,dferr5**2),axis=0)
+            ferr3 = np.sqrt(np.sum([ferr3**2,dferr3**2],axis=0))
+            ferr4 = np.sqrt(np.sum([ferr4**2,dferr4**2],axis=0))
+            ferr5 = np.sqrt(np.sum([ferr5**2,dferr5**2],axis=0))
             # append arrays
             num_list.append(num)
             mjd_list.append(mjd)
@@ -207,6 +210,7 @@ class Pipeline:
             ferr3_list.append(ferr3)
             ferr4_list.append(ferr4)
             ferr5_list.append(ferr5)
+            safe_rm(diff_cat, self.debug_mode)
         # flatten and save data
         num_list = np.array(num_list).flatten()
         mjd_list = np.array(mjd_list).flatten()
@@ -220,12 +224,13 @@ class Pipeline:
         ferr5_list = np.array(ferr5_list).flatten()
         # save
         path_root = os.path.dirname(diff_cat[0])
-        path_dat = os.path.join(path_root,'cat.dat')
-        dat = [num_list, mjd_list, ra_list, dec_list, m3_list, m4_list, m5_list, merr3_list, merr4_list, merr5_list]
-        hdr = 'num mjd ra dec m3 m4 m5 merr3 merr4 merr5'
+        path_dat = os.path.join(path_root,'cat_c%d.dat' % ccd)
+        dat = [num_list, mjd_list, ra_list, dec_list, f3_list, f4_list, f5_list, ferr3_list, ferr4_list, ferr5_list]
+        hdr = 'num mjd_obs ra dec flux3 flux4 flux5 fluxerr3 fluxerr4 fluxerr5'
+        print('Saving catalog as %s' % path_dat)
         np.savetxt(path_dat,np.array(dat).T,fmt='%d %f %f %f %f %f %f %f %f %f',header=hdr)
         safe_rm(template_cat, self.debug_mode)
-        [safe_rm(str(i), self.debug_mode) for i in diff_cat]
+        safe_rm('%s.head' % template_cat[0:-5], self.debug_mode)
         return
 
 
@@ -274,15 +279,7 @@ class Pipeline:
             print('Generating light curves.')
             self.generate_light_curves(file_info)
             # clean directory
-            safe_rm(template_cat, self.debug_mode)
-            for cat_file in cat_list:
-                safe_rm(str(cat_file['file']))
-                safe_rm('%s.head' % template_sci[0:-5])
-            # remove template files
-            #safe_rm(template_sci, self.debug_mode)
-            #safe_rm(template_wgt, self.debug_mode)
-            #safe_rm(template_sci[0:-5]+".head", self.debug_mode)
-            return
+        return
 
     def run(self,image_list,num_threads,tile_head,fermigrid=False):
         # given list of single-epoch image filenames in same tile or region, execute pipeline

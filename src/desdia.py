@@ -54,6 +54,7 @@ def start_tile(tilename,band='g',work_dir='./work',out_dir=None,threads=1,debug_
         print("No images found.")
         return
     # get coadd objects within tile geometry
+    print(debug_mode)
     des_pipeline = pipeline.Pipeline(band,query_sci.usr,query_sci.psw,tile_dir,out_dir,top_dir,debug_mode)
     num_threads = np.clip(threads,0,max_threads)
     print("Running pipeline.")
