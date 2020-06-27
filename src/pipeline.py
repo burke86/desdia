@@ -264,14 +264,14 @@ class Pipeline:
         # given list of single-epoch image filenames in same tile or region, execute pipeline
         print('Pooling %d single-epoch images to %d threads.' % (len(image_list),num_threads))
         print('Downloading images, making weight maps and image masks.')
-        file_info = clean_tpool(self.download_image, image_list, num_threads)
+        file_info_all = clean_tpool(self.download_image, image_list, num_threads)
         print("Downloaded %d images" % len(file_info))
-        file_info = clean_tpool(self.make_weight, file_info, num_threads)
+        file_info_all = clean_tpool(self.make_weight, file_info, num_threads)
         print('Making templates and aligning frames.')
         # CCD loop
         for ccd in np.sort(np.unique(file_info['ccd'])):
             print('Running CCD %d.' % ccd)
-            file_info = file_info[file_info['ccd']==ccd]
+            file_info = file_info_all[file_info_all['ccd']==ccd]
             if len(file_info) == 0: continue
             self.make_templates(file_info,num_threads)
             # make difference images
