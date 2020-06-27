@@ -116,6 +116,8 @@ class Pipeline:
 
     def make_templates(self, info_list, num_threads):
         # Use Y3 images
+        print(info_list)
+        print(info_list["ccd"])
         ccd = info_list["ccd"][0]
         info_list_template = info_list[(info_list["mjd_obs"]>57200) & (info_list["mjd_obs"]<57550)]
         # select sky noise < 2.5*(min sky noise), follows Kessler et al. (2015)
@@ -245,8 +247,9 @@ class Pipeline:
         template_sci = os.path.join(path_root,"template_c%d.fits"%ccd)
         template_wgt = os.path.join(path_root,"template_c%d.weight.fits"%ccd)
         outfile_cat = file_root + "_diff.cat"
+        code = 0
         # SExtractor double image mode
-        if no os.path.exists(outfile_cat):
+        if not os.path.exists(outfile_cat):
             command = 'sex %s,%s -WEIGHT_IMAGE %s,%s  -CATALOG_NAME %s -c %s -MAG_ZEROPOINT 30.753 %s'
             args = (template_sci,outfile_sci,template_wgt,outfile_wgt,outfile_cat,self.sex_file,self.sex_pars)
             code = bash(command % args)
@@ -269,6 +272,7 @@ class Pipeline:
         for ccd in np.sort(np.unique(file_info['ccd'])):
             print('Running CCD %d.' % ccd)
             file_info = file_info[file_info['ccd']==ccd]
+            if len(file_info) == 0: continue
             self.make_templates(file_info,num_threads)
             # make difference images
             print('Differencing images.')
