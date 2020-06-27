@@ -31,6 +31,8 @@ def difference(file_info):
         # Handle HOTPANTS fatal error
         if code != 0:
             print('***HOTPANTS FATAL ERROR**')
+            # Create a dummy file if it failed
+            with open(template_sci, 'w'): pass
             return None
     else:
         print('***Difference image exists**')
@@ -116,16 +118,18 @@ class Pipeline:
 
     def make_templates(self, info_list, num_threads):
         # Use Y3 images
-        print(info_list)
-        print(info_list["ccd"])
         ccd = info_list["ccd"][0]
         info_list_template = info_list[(info_list["mjd_obs"]>57200) & (info_list["mjd_obs"]<57550)]
+        if len(info_list_template) ==  0:
+            print("No Y3 images to generate template!")
         # select sky noise < 2.5*(min sky noise), follows Kessler et al. (2015)
         info_list_template = info_list_template[info_list_template["skysigma"]<2.5*np.nanmin(info_list_template["skysigma"])]
         # after this constraint, use up to 10 images with smallest PSF
         info_list_template = np.sort(info_list,order="psf_fwhm")
         if len(info_list_template) > 10:
             info_list_template = info_list_template[:10]
+        elif len(info_list_template) ==  0:
+            print("Insufficient images to generate template!")
         template_sci = os.path.join(self.tile_dir,'template_c%d.fits' % ccd)
         template_wgt = os.path.join(self.tile_dir,'template_c%d.weight.fits' % ccd)
         template_cat = os.path.join(self.tile_dir,'template_c%d.cat' % ccd)
@@ -260,16 +264,16 @@ class Pipeline:
         info_list["path"] = outfile_cat
         return info_list
 
-    def run_ccd(self,image_list,num_threads,fermigrid=False):
+    def run_ccd(self,image_list,num_threads=1,fermigrid=False):
         # given list of single-epoch image filenames in same tile or region, execute pipeline
         print('Pooling %d single-epoch images to %d threads.' % (len(image_list),num_threads))
         print('Downloading images, making weight maps and image masks.')
         file_info_all = clean_tpool(self.download_image, image_list, num_threads)
-        print("Downloaded %d images" % len(file_info))
-        file_info_all = clean_tpool(self.make_weight, file_info, num_threads)
+        print("Downloaded %d images" % len(file_info_all))
+        file_info_all = clean_tpool(self.make_weight, file_info_all, num_threads)
         print('Making templates and aligning frames.')
         # CCD loop
-        for ccd in np.sort(np.unique(file_info['ccd'])):
+        for ccd in np.sort(np.unique(file_info_all['ccd'])):
             print('Running CCD %d.' % ccd)
             file_info = file_info_all[file_info_all['ccd']==ccd]
             if len(file_info) == 0: continue

@@ -11,7 +11,7 @@ from misc import toIAU
 from misc import bash
 from misc import clean_pool
 
-def start_tile(tilename,band='g',work_dir='./work',out_dir=None,threads=1,debug_mode=False):
+def start_tile(tilename,ccd=None,band='g',work_dir='./work',out_dir=None,threads=1,debug_mode=False):
     # run pipeline on a tile
     max_threads = 32
     top_dir = None
@@ -54,7 +54,8 @@ def start_tile(tilename,band='g',work_dir='./work',out_dir=None,threads=1,debug_
         print("No images found.")
         return
     # get coadd objects within tile geometry
-    print(debug_mode)
+    if ccd is not None:
+        image_list = image_list[image_list['ccd']==ccd]
     des_pipeline = pipeline.Pipeline(band,query_sci.usr,query_sci.psw,tile_dir,out_dir,top_dir,debug_mode)
     num_threads = np.clip(threads,0,max_threads)
     print("Running pipeline.")
@@ -73,7 +74,7 @@ def main():
     # set up arguments
     parser = argparse.ArgumentParser(description='Find AGN from photometric variability in surveys.')
     parser.add_argument('tile',nargs='+',type=str,help='tile or field name (e.g. DES??? or SN-C3 or all_survey)')
-    #parser.add_argument('-p','--program',nargs='+',type=str,default='survey',help="'supernova', 'survey', or 'legacy'")
+    parser.add_argument('-c','--ccd',type=int,default=None,help="which CCD to use (default is all)")
     parser.add_argument('-w','--work_dir',nargs='+',type=str,default='./work',help='work directory')
     parser.add_argument('-o','--out_dir',nargs='+',type=str,default=None,help='output directory')
     parser.add_argument('--grid',action='store_true',help='run for all tiles on fermigrid')
@@ -91,6 +92,10 @@ def main():
     print("On grid:        %s" % args.grid)
     print("Tile/field      %s" % tile)
     print("Band:           %s" % band)
+    if args.ccd is None:
+        print("CCD:         all")
+    else:
+        print("CCD:            %d" % args.ccd)
     print("Work directory: %s" % work_dir)
     print("Threads:        %s" % threads)
     print("Debug mode:     %s" % args.debug)
@@ -113,9 +118,9 @@ def main():
             select_ra = ((tile_info["ra_cent"]-tile_info["ra_size"]) < 60) | ((tile_info["ra_cent"]+tile_info["ra_size"]) > 300.5)
             tile_info = tile_info[select_dec & select_ra]
             tile = tile_info[num_proc][0]
-        start_tile(tile,band,work_dir,out_dir,threads,args.debug)
+        start_tile(tile,args.ccd,band,work_dir,out_dir,threads,args.debug)
     # single-tile mode
-    start_tile(tile,band,work_dir,out_dir,threads,args.debug)
+    start_tile(tile,args.ccd,band,work_dir,out_dir,threads,args.debug)
     return
 
 if __name__ == "__main__":
