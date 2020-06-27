@@ -174,7 +174,7 @@ class Pipeline:
         mjds = info_list['mjd_obs']
         # assumes all catalogs have same number of lines (detections)
         # template catalog
-        num,ra,dec,f3,f4,f5,ferr3,ferr4,ferr5 = np.loadtxt(template_cat, unpack=True)
+        num,ra,dec,f3_temp,f4_temp,f5_temp,ferr3_temp,ferr4_temp,ferr5_temp = np.loadtxt(template_cat, unpack=True)
         num_list = []; mjd_list = []
         ra_list = []; dec_list = []
         f3_list = []; ferr3_list = []
@@ -192,13 +192,13 @@ class Pipeline:
             df4[np.abs(df4)<1e-29] = np.nan
             df5[np.abs(df5)<1e-29] = np.nan
             # save light curves
-            print(np.shape([f3,df3]))
-            f3 = np.sum([f3,df3],axis=0)
-            f4 = np.sum([f4,df4],axis=0)
-            f5 = np.sum([f5,df5],axis=0)
-            ferr3 = np.sqrt(np.sum([ferr3**2,dferr3**2],axis=0))
-            ferr4 = np.sqrt(np.sum([ferr4**2,dferr4**2],axis=0))
-            ferr5 = np.sqrt(np.sum([ferr5**2,dferr5**2],axis=0))
+            #print(np.shape([f3,df3]))
+            f3 = np.sum([f3_temp,df3],axis=0)
+            f4 = np.sum([f4_temp,df4],axis=0)
+            f5 = np.sum([f5_temp,df5],axis=0)
+            ferr3 = np.sqrt(np.sum([ferr3_temp**2,dferr3**2],axis=0))
+            ferr4 = np.sqrt(np.sum([ferr4_temp**2,dferr4**2],axis=0))
+            ferr5 = np.sqrt(np.sum([ferr5_temp**2,dferr5**2],axis=0))
             # append arrays
             num_list.append(num)
             mjd_list.append(mjd)
@@ -246,9 +246,10 @@ class Pipeline:
         template_wgt = os.path.join(path_root,"template_c%d.weight.fits"%ccd)
         outfile_cat = file_root + "_diff.cat"
         # SExtractor double image mode
-        command = 'sex %s,%s -WEIGHT_IMAGE %s,%s  -CATALOG_NAME %s -c %s -MAG_ZEROPOINT 22.5 %s'
-        args = (template_sci,outfile_sci,template_wgt,outfile_wgt,outfile_cat,self.sex_file,self.sex_pars)
-        code = bash(command % args)
+        if no os.path.exists(outfile_cat):
+            command = 'sex %s,%s -WEIGHT_IMAGE %s,%s  -CATALOG_NAME %s -c %s -MAG_ZEROPOINT 30.753 %s'
+            args = (template_sci,outfile_sci,template_wgt,outfile_wgt,outfile_cat,self.sex_file,self.sex_pars)
+            code = bash(command % args)
         safe_rm(outfile_sci, self.debug_mode)
         safe_rm(outfile_wgt, self.debug_mode)
         if code != 0 or not os.path.exists(outfile_cat): return None
