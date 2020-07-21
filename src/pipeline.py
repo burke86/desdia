@@ -32,7 +32,7 @@ def difference(file_info):
         if code != 0:
             print('***HOTPANTS FATAL ERROR**')
             # Create a dummy file if it failed
-            with open(template_sci, 'w'): pass
+            with open(outfile_sci, 'w'): pass
             return None
     else:
         print('***Difference image exists**')
@@ -116,12 +116,13 @@ class Pipeline:
         except:
             return None
 
-    def make_templates(self, info_list, num_threads):
+    def make_template(self, info_list, num_threads):
         # Use Y3 images
         ccd = info_list["ccd"][0]
         info_list_template = info_list[(info_list["mjd_obs"]>57200) & (info_list["mjd_obs"]<57550)]
         if len(info_list_template) ==  0:
             print("No Y3 images to generate template!")
+            return 1
         # select sky noise < 2.5*(min sky noise), follows Kessler et al. (2015)
         info_list_template = info_list_template[info_list_template["skysigma"]<2.5*np.nanmin(info_list_template["skysigma"])]
         # after this constraint, use up to 10 images with smallest PSF
@@ -130,6 +131,7 @@ class Pipeline:
             info_list_template = info_list_template[:10]
         elif len(info_list_template) ==  0:
             print("Insufficient images to generate template!")
+            return 2
         template_sci = os.path.join(self.tile_dir,'template_c%d.fits' % ccd)
         template_wgt = os.path.join(self.tile_dir,'template_c%d.weight.fits' % ccd)
         template_cat = os.path.join(self.tile_dir,'template_c%d.cat' % ccd)
@@ -141,8 +143,8 @@ class Pipeline:
         resample_dir = os.path.dirname(template_sci)
         if not os.path.exists(template_sci):
             bash('ln -s %s %s.head' % (s[0],template_sci[0:-5]))
-            command = 'swarp %s -c %s -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s -NTHREADS 1 -RESAMPLE_DIR %s'
-            args = (swarp_temp_list,self.swarp_file,template_sci,template_wgt,resample_dir)
+            command = 'swarp %s -c %s -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s -NTHREADS %d -RESAMPLE_DIR %s'
+            args = (swarp_temp_list,self.swarp_file,template_sci,template_wgt,num_threads,resample_dir)
             bash(command % args)
         # Align
         clean_tpool(self.align,swarp_all_list.split(),num_threads)
@@ -150,7 +152,7 @@ class Pipeline:
         command = 'sex %s -WEIGHT_IMAGE %s  -CATALOG_NAME %s -c %s -MAG_ZEROPOINT 22.5 %s'
         args = (template_sci,template_wgt,template_cat,self.sex_file,self.sex_pars)
         bash(command % args)
-        return
+        return 0
     
     def align(self,filename_in):
         # project and align images to template
@@ -277,7 +279,8 @@ class Pipeline:
             print('Running CCD %d.' % ccd)
             file_info = file_info_all[file_info_all['ccd']==ccd]
             if len(file_info) == 0: continue
-            self.make_templates(file_info,num_threads)
+            code = self.make_template(file_info,num_threads)
+            if code != 0: continue
             # make difference images
             print('Differencing images.')
             clean_pool(difference,file_info,num_threads)
