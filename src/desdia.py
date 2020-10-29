@@ -3,11 +3,9 @@ import numpy as np
 import argparse
 import commands
 from random import randint
-from astropy.coordinates import SkyCoord
 from astropy import units as u
 import multiprocessing as mp
 import query, pipeline
-from misc import toIAU
 from misc import bash
 from misc import clean_pool
 
@@ -39,28 +37,40 @@ def start_tile(tilename,ccd=None,band='g',work_dir='./work',out_dir=None,threads
     query_sci = query.Query('db-dessci')
     print("Querying single-epoch images for tile/field %s." % tilename)
     # get reduced filenames
+    # DEPRICATED
     if tilename.startswith('DES'):
-        file_list = query_sci.get_filenames_from_tile(tilename,band)
-        if file_list is None:
-            print("No images found.")
-            return
         # get archive urls and other info
-        image_list = query_sci.get_image_info(file_list)
+        image_list = query_sci.get_image_info_tile(tilename,band)
         print("Querying tile geometery.")
         tile_head = query_sci.get_tile_head(tilename,band)
-    elif tilename.startswith('SN-'): # tilename is the fieldname in this case
+    # Supernova field
+    if tilename.startswith('SN-') or tilename.lower() == "cosmos": # tilename is the fieldname in this case
         image_list = query_sci.get_image_info_field(tilename,band)
+    # Main survey [1-2180]
+    elif tilename.startswith('SURVEY-'):
+        # Load pointings table
+        num = int(tilename.split('-')[1])
+        dtype = [('tra',float),('tdec',float),('mjd_obs',float)]
+        data = np.genfromtxt('y3point.csv',delimiter=',',skip_header=1,dtype=dtype)
+        data = data[num] # Get the pointing number
+        image_list = query_sci.get_image_info_Y3_pointing(data['tra'],data['tdec'],data['mjd_obs'],band='g')
+    else:
+        print("Pointing/field '%s' not recognized!" % tilename)
     if image_list is None:
-        print("No images found.")
+        print("***No images found in field/tile %s!***" % tilename)
         return
-    # get coadd objects within tile geometry
+    # if ccd is specified, run in single-CCD mode
     if ccd is not None:
         image_list = image_list[image_list['ccd']==ccd]
+    # run pipeline
     des_pipeline = pipeline.Pipeline(band,query_sci.usr,query_sci.psw,tile_dir,out_dir,top_dir,debug_mode)
     num_threads = np.clip(threads,0,max_threads)
     print("Running pipeline.")
-    lc_files = des_pipeline.run_ccd(image_list,num_threads,fermigrid)
-    #lc_files = des_pipeline.run(image_list,num_threads,tile_head,fermigrid)
+    # Supernova field
+    if tilename.startswith('SN-'):
+        des_pipeline.run_ccd_sn(image_list,num_threads,fermigrid)
+    elif tilename.startswith('SURVEY-'):
+        des_pipeline.run_ccd_survey(image_list,query_sci,num_threads,fermigrid)
     # plot summary statistics and save data
     print('Compressing and transfering files.')
     # compress and transfer files
@@ -71,9 +81,10 @@ def start_tile(tilename,ccd=None,band='g',work_dir='./work',out_dir=None,threads
     return
 
 def main():
+    print('main')
     # set up arguments
     parser = argparse.ArgumentParser(description='Find AGN from photometric variability in surveys.')
-    parser.add_argument('tile',nargs='+',type=str,help='tile or field name (e.g. DES??? or SN-C3 or all_survey)')
+    parser.add_argument('pointing',nargs='+',type=str,help='tile or field name (e.g. SN-C3 or SURVEY-[1-2180])')
     parser.add_argument('-c','--ccd',type=int,default=None,help="which CCD to use (default is all)")
     parser.add_argument('-w','--work_dir',nargs='+',type=str,default='./work',help='work directory')
     parser.add_argument('-o','--out_dir',nargs='+',type=str,default=None,help='output directory')
@@ -83,14 +94,15 @@ def main():
     parser.add_argument('-f','--filter',type=str,default='g',help='filter to use')
     parser.add_argument('-n','--threads',type=int,default=1,help='number of threads')
     args = parser.parse_args()
-    tile = np.asscalar(np.asarray(args.tile))
+    print('got args')
+    tile = np.asscalar(np.asarray(args.pointing))
     band = np.asscalar(np.asarray(args.filter))
     work_dir = np.asscalar(np.asarray(args.work_dir))
     out_dir = np.asscalar(np.asarray(args.out_dir))
     threads = np.asscalar(np.asarray(args.threads))
     print("==============================================")
     print("On grid:        %s" % args.grid)
-    print("Tile/field      %s" % tile)
+    print("Pointing/fiel   %s" % tile)
     print("Band:           %s" % band)
     if args.ccd is None:
         print("CCD:         all")
@@ -125,6 +137,7 @@ def main():
 
 if __name__ == "__main__":
     # main function
+    print('main')
     start_time = time.time()
     main()
     print("--- Done in %.2f minutes ---" % float((time.time() - start_time)/60))

@@ -1,24 +1,9 @@
 import os, subprocess
 import numpy as np
-from astropy.coordinates import SkyCoord
 from astropy import units as u
 from astropy.io import fits
 from multiprocessing import Pool
 from multiprocessing.dummy import Pool as ThreadPool
-
-def toIAU(ra, dec):
-    c = SkyCoord(ra*u.degree, dec*u.degree)
-    name = 'J{0}{1}'.format(c.ra.to_string(unit=u.hourangle, sep='', precision=2, pad=True), c.dec.to_string(sep='', precision=2, alwayssign=True, pad=True))
-    return name
-
-def fromIAU(name):
-    name = name.strip()
-    ra = name.split('J')[1].split('+')[0].split('-')[0]
-    dec = name.split('J'+ra)[1]
-    ra = "%sh%sm%ss" % (ra[0:2], ra[2:4], ra[4:])
-    dec = "%sd%sm%ss" % (dec[0:3], dec[3:5], dec[5:])
-    c = SkyCoord('%s %s' % (ra, dec))
-    return c.ra.degree, c.dec.degree
 
 def single_header(filename):
     hdul = fits.open(filename,ignore_missing_end=True)

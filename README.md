@@ -9,7 +9,7 @@ Produce difference imaging light curves for the dark energy survey in an automat
 
 Needs to be run using the EUPS environment after installing packages in the `source.me` file. The input is a DES field name (e.g. SN-C3) or, for the wide-area field, tile name (e.g. DES0251+0043):
 
-`./desdia field/tilename -n threads -w work directory -o output directory`
+`./desdia field/pointing -n threads -w work directory -o output directory`
 
 If you want to run a particular source, you will need to first query the field/tile name first using easyaccess.
 
@@ -19,11 +19,11 @@ The `-c` flag can be used to specify the CCD. Due to invalid keywords in image h
 
 `./desdia SN-C3 -n 30 -c 1 -w /data/des80.a/data/user/ --nowarn`
 
-#### Wide-area Tile (coming soon)
+#### Wide-Area (Main Survey)
 
-For the wide-area survey, specify the tile. Each tile will be split into four regions.
+For the wide-area survey, specify the pointing number (value from 0-2180; see `y3point.csv` file). Each pointing will be split into CCDs using a Y3 template (or the CCD specified with the `-c` flag):
 
-`./desdia DES0251+0043 -n 30 -w /data/des80.a/data/user/ --nowarn`
+`./desdia SURVEY-1 -n 30 -w /data/des80.a/data/user/ --nowarn`
 
 ### Output:
 

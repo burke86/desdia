@@ -1,9 +1,7 @@
 import os, sys
 import numpy as np
-from multiprocessing import Pool as Pool
-from astropy import units as u
-from astropy.coordinates import SkyCoord
 from misc import *
+print('done pipe')
 
 def difference(file_info):
     # Get DES hotpants files (TEMPORARY)
@@ -77,7 +75,7 @@ class Pipeline:
 
     def download_image(self,info_list):
         # download image from image archive server
-    	url = info_list['path'] # Get URL
+        url = info_list['path'] # Get URL
         local_path = os.path.join(self.tile_dir,os.path.basename(url))
         if not os.path.exists(local_path[:-3]):
             command = 'wget -nc --no-check-certificate -q --user %s --password %s %s -P %s'
@@ -116,15 +114,16 @@ class Pipeline:
         except:
             return None
 
-    def make_template(self, info_list, num_threads):
+    def make_template(self, info_list, sn=True, num_threads=1):
         # Use Y3 images
         ccd = info_list["ccd"][0]
         info_list_template = info_list[(info_list["mjd_obs"]>57200) & (info_list["mjd_obs"]<57550)]
         if len(info_list_template) ==  0:
             print("No Y3 images to generate template!")
             return 1
-        # select sky noise < 2.5*(min sky noise), follows Kessler et al. (2015)
-        info_list_template = info_list_template[info_list_template["skysigma"]<2.5*np.nanmin(info_list_template["skysigma"])]
+        if sn:
+            # select sky noise < 2.5*(min sky noise), follows Kessler et al. (2015)
+            info_list_template = info_list_template[info_list_template["skysigma"]<2.5*np.nanmin(info_list_template["skysigma"])]
         # after this constraint, use up to 10 images with smallest PSF
         info_list_template = np.sort(info_list,order="psf_fwhm")
         if len(info_list_template) > 10:
@@ -147,14 +146,16 @@ class Pipeline:
             args = (swarp_temp_list,self.swarp_file,template_sci,template_wgt,num_threads,resample_dir)
             bash(command % args)
         # Align
-        clean_tpool(self.align,swarp_all_list.split(),num_threads)
+        info_list_swarp = np.array(swarp_all_list.split(), dtype=[('path','|S200')])
+        clean_tpool(self.align,info_list_swarp,num_threads)
         # Extract sources
         command = 'sex %s -WEIGHT_IMAGE %s  -CATALOG_NAME %s -c %s -MAG_ZEROPOINT 22.5 %s'
         args = (template_sci,template_wgt,template_cat,self.sex_file,self.sex_pars)
         bash(command % args)
         return 0
     
-    def align(self,filename_in):
+    def align(self,info_list):
+        filename_in = info_list["path"]
         # project and align images to template
         file_root = filename_in[0:-5]
         path_root = os.path.dirname(filename_in)
@@ -166,10 +167,8 @@ class Pipeline:
         if not os.path.exists(filename_out):
             bash('ln -s %s %s' % (template_sci,file_header))
             bash('swarp %s -c %s -NTHREADS %d -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s.weight.fits -RESAMPLE_DIR %s' % (filename_in,self.swarp_file,1,filename_out,filename_out[0:-5],path_root))
-        safe_rm(filename_in, self.debug_mode)
-        safe_rm(filename_in[0:-5]+".weight.fits", self.debug_mode)
-        safe_rm(file_header, self.debug_mode)
-        return filename_in
+        info_list["path"] = filename_out
+        return info_list
 
 
     def generate_light_curves(self,info_list):
@@ -182,6 +181,7 @@ class Pipeline:
         mjds = info_list['mjd_obs']
         # assumes all catalogs have same number of lines (detections)
         # template catalog
+        # Yes, this code is horrifying...
         num,ra,dec,f3_temp,f4_temp,f5_temp,ferr3_temp,ferr4_temp,ferr5_temp = np.loadtxt(template_cat, unpack=True)
         num_list = []; mjd_list = []
         ra_list = []; dec_list = []
@@ -250,8 +250,8 @@ class Pipeline:
         path_root = os.path.dirname(local_path)
         outfile_sci = file_root + "_proj_diff.fits"
         outfile_wgt = file_root + "_proj_diff.weight.fits"
-        template_sci = os.path.join(path_root,"template_c%d.fits"%ccd)
-        template_wgt = os.path.join(path_root,"template_c%d.weight.fits"%ccd)
+        template_sci = os.path.join(path_root,"template_c%d.fits" % ccd)
+        template_wgt = os.path.join(path_root,"template_c%d.weight.fits" % ccd)
         outfile_cat = file_root + "_diff.cat"
         code = 0
         # SExtractor double image mode
@@ -266,7 +266,7 @@ class Pipeline:
         info_list["path"] = outfile_cat
         return info_list
 
-    def run_ccd(self,image_list,num_threads=1,fermigrid=False):
+    def run_ccd_sn(self,image_list,num_threads=1,fermigrid=False):
         # given list of single-epoch image filenames in same tile or region, execute pipeline
         print('Pooling %d single-epoch images to %d threads.' % (len(image_list),num_threads))
         print('Downloading images, making weight maps and image masks.')
@@ -279,7 +279,7 @@ class Pipeline:
             print('Running CCD %d.' % ccd)
             file_info = file_info_all[file_info_all['ccd']==ccd]
             if len(file_info) == 0: continue
-            code = self.make_template(file_info,num_threads)
+            code = self.make_template_sn(file_info,sn=True,num_threads=num_threads)
             if code != 0: continue
             # make difference images
             print('Differencing images.')
@@ -293,7 +293,51 @@ class Pipeline:
             # clean directory
         return
 
-    def run(self,image_list,num_threads,tile_head,fermigrid=False):
+    def run_ccd_survey(self,image_list,query_sci,num_threads=1,fermigrid=False,band='g'):
+        # given list of single-epoch image filenames in same pointing, execute pipeline
+        print('Pooling %d single-epoch images to %d threads.' % (len(image_list),num_threads))
+        print('Downloading images, making weight maps and image masks.')
+        file_info_all = clean_tpool(self.download_image, image_list, num_threads)
+        print("Downloaded %d images" % len(file_info_all))
+        file_info_all = clean_tpool(self.make_weight, file_info_all, num_threads)
+        print('Making templates and aligning frames.')
+        # CCD loop in template list
+        for ccd in np.sort(np.unique(file_info_all['ccd'])):
+            print('Running CCD %d.' % ccd)
+            file_info_template = file_info_all[file_info_all['ccd']==ccd]
+            if len(file_info_template) == 0: continue
+            print('Makign template')
+            code = self.make_template(file_info_template,sn=False,num_threads=num_threads)
+            if code != 0: continue
+            print('Querying overlapping CCDs images.')
+            # Now query images which overlap with this template CCD
+            # (dithering prevents us from using same CCD ID as in SN fields)
+            image_list = query_sci.get_image_info_overlap(file_info_template['ramin'][0],file_info_template['ramax'][0],
+                                                         file_info_template['decmin'][0],file_info_template['decmax'][0],
+                                                         band=band)
+            print('Downloading images, making weight maps and image masks.')
+            file_info = clean_tpool(self.download_image,image_list,num_threads)
+            print("Downloaded %d images" % len(file_info))
+            file_info = clean_tpool(self.make_weight,file_info,num_threads)
+            # TODO: Add template name to file_info!!!!
+            print('Aligning frames.')
+            info_list = clean_tpool(self.align,file_info,num_threads=num_threads)
+            # make difference images
+            # we should be good with this! No need to combine ones taken on the same night anymore ;)
+            # they will come through nicely by sorting the catalogs afterwords
+            print('Differencing images.')
+            clean_pool(difference,file_info,num_threads)
+            # forced photometry
+            print('Performing forced photometry.')
+            file_info = clean_tpool(self.forced_photometry,file_info,num_threads)
+            # write lightcurve data
+            print('Generating light curves.')
+            self.generate_light_curves(file_info)
+            # clean directory
+        return
+    
+    def run_survey_template(self,image_list,num_threads,tile_head,fermigrid=False):
+        ## DEPRICATED!!!! DO not use
         # given list of single-epoch image filenames in same tile or region, execute pipeline
         print('Pooling %d single-epoch images to %d threads.' % (len(image_list),num_threads))
         print('Downloading images, making weight maps and image masks.')
@@ -302,7 +346,7 @@ class Pipeline:
         file_info = clean_tpool(self.make_weight, file_info, num_threads)
         # combine exposures with same MJD (tile mode only)
         print('Tiling CCD images.')
-        file_info = self.combine_night(file_info,tile_head,num_threads)
+        file_info = self.combine_night(file_info,tile_head,num_threads=num_threads)
         if len(file_info) < self.min_epoch:
             print("Not enough epochs in tile.")
             sys.exit(0)

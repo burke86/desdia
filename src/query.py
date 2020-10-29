@@ -41,26 +41,6 @@ class Query:
             return None
 
 
-    def get_filenames_from_tile(self,tilename,band):
-        # get filenames from tilename
-        band = '%_'+str(band)+'_%'
-        get_list = "select distinct filename from Y6A1_IMAGE_TO_TILE where tilename=:tilename and filename like :band"
-        self.cur.execute(get_list,tilename=tilename,band=band)
-        info_list = self.cur.fetchall()
-        # SV
-        get_list = "select distinct filename from Y4A1_IMAGE_TO_TILE where tilename=:tilename and filename like :band"
-        self.cur.execute(get_list,tilename=tilename,band=band)
-        info_list += self.cur.fetchall()
-        if len(info_list) > 0:
-            # create np stuctured array
-            dtype = [("filename","|S41")]
-            filename_list = np.array(info_list,dtype=dtype)
-            filename_list = np.unique(filename_list)
-            return filename_list
-        else:
-            return None
-
-
     def get_all_tilenames(self):
         # get tilenames for whole survey
         get_list = "select distinct tilename from Y6A1_IMAGE_TO_TILE"
@@ -74,18 +54,94 @@ class Query:
         tilename_list = np.unique(tilename_list)
         # save for future use
         return tilename_list
-
-
-    def get_image_info_field(self,field,band='g'):
-        # get Y1-Y6 images
+    
+    
+    def get_Y3_pointings(self,band='g'):
+        # Get list of unique Y3 pointings in the main DES survey to build templates
+        get_list = "select unique e.TRADEG, e.TDECDEG, e.mjd_obs from Y6A1_EXPOSURE e where e.mjd_obs>57200 and e.mjd_obs<57550 and e.PROGRAM='survey' and e.band=:band"
+        self.cur.execute(get_list,band=band)
+        info_list = self.cur.fetchall()
+        dtype = [("TRADEG",float),("TDECDEG",float),("mjd_obs",float)]
+        info_list = np.array(info_list,dtype=dtype)
+        return info_list
+    
+    
+    def get_image_info_Y3_pointing(self,tra,tdec,mjd_obs,band='g'):
+        # Get image archive info (URL) from Y3 pointing (to generate templates)
         base_url = "https://desar2.cosmology.illinois.edu/DESFiles/desarchive/"
-        get_list = "select f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from y6a1_file_archive_info f, y6a1_image i, y6a1_exposure e, y6a1_qa_summary s, y6a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and e.field=:field and e.program='supernova' and i.band=:band and z.version=:version and e.mjd_obs>56400"
-        self.cur.execute(get_list,field=field,band=band,version="y6a1_v2.1")
+        # Get Y1-Y6 images
+        get_list = "select f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs, i.racmin, i.racmax, i.deccmin, i.deccmax from y6a1_file_archive_info f, y6a1_image i, y6a1_exposure e, y6a1_qa_summary s, y6a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and e.TRADEG=:tra and e.TDECDEG=:tdec and i.band=:band and e.mjd_obs=:mjd_obs and z.version=:version"
+        self.cur.execute(get_list,tra=tra,tdec=tdec,band=band,mjd_obs=mjd_obs,version="y6a1_v2.1")
+        info_list = self.cur.fetchall()
+        if len(info_list) > 0:
+            dtype = [("filename","|S41"),("path","|S200"),("compression","|S4"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float),("ramin",float),("ramax",float),("decmin",float),("decmax",float)]
+            info_list = np.array(info_list,dtype=dtype)
+            # Form URL and data type
+            ccd_list = [f["filename"].split('_c')[1][:2] for f in info_list]
+            url_list = [base_url+f["path"]+"/"+f["filename"]+f["compression"] for f in info_list]
+            dtype = [("path","|S300"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float),("ccd",int),("ramin",float),("ramax",float),("decmin",float),("decmax",float)]
+            info_list = list(zip(url_list,info_list["psf_fwhm"],info_list["skysigma"],info_list["mjd_obs"],ccd_list,info_list["ramin"],info_list["ramax"],info_list["decmin"],info_list["decmax"]))
+            info_list = np.array(info_list,dtype=dtype)
+            return info_list
+        else:
+            return None
+    
+    
+    def get_image_info_overlap(self,ramin,ramax,decmin,decmax,band='g'):
+        # EDGE CASE WHEN  RACROSS0
+        base_url = "https://desar2.cosmology.illinois.edu/DESFiles/desarchive/"
+        # Get image archive info (URL) at main survey telescope pointing
+        # Get Y1-Y6 images
+        get_list = "select f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from y6a1_file_archive_info f, y6a1_image i, y6a1_exposure e, y6a1_qa_summary s, y6a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and \
+        (i.racmin between :ramin and :ramax or i.racmax between :ramin and :ramax) and \
+        (i.deccmin between :decmin and :decmax or i.deccmax between :decmin and :decmax) \
+        and i.band=:band and z.version=:version and e.mjd_obs>56400"
+        self.cur.execute(get_list,ramin=ramin,ramax=ramax,decmin=decmin,decmax=decmax,band=band,version="y6a1_v2.1")
         info_list = self.cur.fetchall()
         # get SV images
-        get_list = "select f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from y4a1_file_archive_info f, y4a1_image i, y4a1_exposure e, y4a1_qa_summary s, y4a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and e.field=:field and e.program='supernova' and i.band=:band and z.version=:version and e.mjd_obs<56400"
-        self.cur.execute(get_list,field=field,band=band,version="v2.0")
+        get_list = "select f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from y6a1_file_archive_info f, y6a1_image i, y6a1_exposure e, y6a1_qa_summary s, y6a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and \
+        (i.racmin between :ramin and :ramax or i.racmax between :ramin and :ramax) and \
+        (i.deccmin between :decmin and :decmax or i.deccmax between :decmin and :decmax) \
+        and i.band=:band and z.version=:version and e.mjd_obs>56400"
+        self.cur.execute(get_list,ramin=ramin,ramax=ramax,decmin=decmin,decmax=decmax,band=band,version="v2.0")
         info_list += self.cur.fetchall()
+        if len(info_list) > 0:
+            dtype = [("filename","|S41"),("path","|S200"),("compression","|S4"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float)]
+            info_list = np.array(info_list,dtype=dtype)
+            # Form URL and data type
+            ccd_list = [f["filename"].split('_c')[1][:2] for f in info_list]
+            url_list = [base_url+f["path"]+"/"+f["filename"]+f["compression"] for f in info_list]
+            dtype = [("path","|S300"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float),("ccd",int)]
+            info_list = list(zip(url_list,info_list["psf_fwhm"],info_list["skysigma"],info_list["mjd_obs"],ccd_list))
+            info_list = np.array(info_list,dtype=dtype)
+            return info_list
+        else:
+            return None
+            
+
+    def get_image_info_field(self,field,band='g'):
+        # get image archive info (URL) from SN-field name or COSMOS
+        base_url = "https://desar2.cosmology.illinois.edu/DESFiles/desarchive/"
+        if field.lower() == "cosmos":
+            decmin, decmax = 1.22, 3.20
+            ramin, ramax = 149.03, 151.21
+            # get Y1-Y6 images
+            get_list = "select f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from y6a1_file_archive_info f, y6a1_image i, y6a1_exposure e, y6a1_qa_summary s, y6a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and i.dec_cent between :decmin and :decmax and i.ra_cent between :ramin and :ramax and i.band=:band and z.version=:version and e.mjd_obs>56400"
+            self.cur.execute(get_list,decmin=decmin,decmax=decmax,ramin=ramin,ramax=ramax,band=band,version="y6a1_v2.1")
+            info_list = self.cur.fetchall()
+            # get SV images
+            get_list = "select f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from y4a1_file_archive_info f, y4a1_image i, y4a1_exposure e, y4a1_qa_summary s, y4a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and i.dec_cent between :decmin and :decmax and i.ra_cent between :ramin and :ramax and i.band=:band and z.version=:version and e.mjd_obs<56400"
+            self.cur.execute(get_list,decmin=decmin,decmax=decmax,ramin=ramin,ramax=ramax,band=band,version="v2.0")
+            info_list += self.cur.fetchall()
+        else: # Should start with "SN-*"
+            # get Y1-Y6 images
+            get_list = "select f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from y6a1_file_archive_info f, y6a1_image i, y6a1_exposure e, y6a1_qa_summary s, y6a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and e.field=:field and e.program='supernova' and i.band=:band and z.version=:version and e.mjd_obs>56400"
+            self.cur.execute(get_list,field=field,band=band,version="y6a1_v2.1")
+            info_list = self.cur.fetchall()
+            # get SV images
+            get_list = "select f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from y4a1_file_archive_info f, y4a1_image i, y4a1_exposure e, y4a1_qa_summary s, y4a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and e.field=:field and e.program='supernova' and i.band=:band and z.version=:version and e.mjd_obs<56400"
+            self.cur.execute(get_list,field=field,band=band,version="v2.0")
+            info_list += self.cur.fetchall()
         # TODO: Search misc fields
         if len(info_list) > 0:
             dtype = [("filename","|S41"),("path","|S200"),("compression","|S4"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float)]
@@ -101,14 +157,26 @@ class Query:
             return None
 
 
-    def get_image_info(self,file_info,program="any"):
-        # get image archive info from filename from program
-        if program == "survey":
-            get_program = "and e.program!='supernova'"
-        elif program == "supernova":
-            get_program = "and e.program='supernova'"
-        elif program == "any":
-            get_program = ""
+    def get_image_info_tile(self,tilename,band='g'):
+        # get image archive info (URL) for all images overlapping with tile from tilename
+        band = '%_'+str(band)+'_%'
+        get_list = "select distinct filename from Y6A1_IMAGE_TO_TILE where tilename=:tilename and filename like :band"
+        self.cur.execute(get_list,tilename=tilename,band=band)
+        info_list = self.cur.fetchall()
+        # SV
+        get_list = "select distinct filename from Y4A1_IMAGE_TO_TILE where tilename=:tilename and filename like :band"
+        self.cur.execute(get_list,tilename=tilename,band=band)
+        info_list += self.cur.fetchall()
+        # Return if no images found
+        if len(info_list) == 0:
+            print("***No images found in tile.***")
+            return None
+        # create np stuctured array
+        dtype = [("filename","|S41")]
+        file_info = np.array(info_list,dtype=dtype)
+        file_info = np.unique(file_info)
+        # now get image archive info from filenames
+        get_program = "and e.program!='supernova'"
         # get Y1-Y6 images
         get_list = "select f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs, e.nite, z.mag_zero, z.sigma_mag_zero from y6a1_file_archive_info f, y6a1_image i, y6a1_exposure e, y6a1_qa_summary s, y6a1_zeropoint z where "
         for item in file_info:
@@ -132,10 +200,17 @@ class Query:
         if len(info_list) > 0:
             dtype_info = [("filename","|S41"),("path","|S200"),("compression","|S4"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float),('nite',int),('mag_zero',float),('sigma_mag_zero',float)]
             info_list = np.array(info_list,dtype=dtype_info)
+            # Form URL and data type
+            ccd_list = [f["filename"].split('_c')[1][:2] for f in info_list]
+            url_list = [base_url+f["path"]+"/"+f["filename"]+f["compression"] for f in info_list]
+            dtype = [("path","|S300"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float),("ccd",int)]
+            info_list = list(zip(url_list,info_list["psf_fwhm"],info_list["skysigma"],info_list["mjd_obs"],ccd_list))
+            info_list = np.array(info_list,dtype=dtype)
             return info_list
         else:
             return None
 
+"""
     def get_tile_head(self,tilename,band):
         get_list = "select distinct CD1_1, CD1_2, CD2_1, CD2_2, CRPIX1, CRPIX2, CRVAL1, CRVAL2, CTYPE1, CTYPE2, PIXELSCALE, NAXIS1, NAXIS2, RA_CENT, DEC_CENT, RA_SIZE, DEC_SIZE from Y3A2_COADDTILE_GEOM where tilename=:tilename"
         self.cur.execute(get_list,tilename=tilename)
@@ -187,3 +262,4 @@ class Query:
             return info_list
         else:
             return None
+"""
