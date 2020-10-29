@@ -12,10 +12,10 @@ def difference(file_info):
     ccd = file_info["ccd"]
     file_root = local_path[0:-5]
     path_root = os.path.dirname(local_path)
-    file_sci = file_root + "_proj.fits"
-    file_wgt = file_root + "_proj.weight.fits"
-    outfile_sci = file_root + "_proj_diff.fits"
-    outfile_wgt = file_root + "_proj_diff.weight.fits"
+    file_sci = file_root + ".fits"
+    file_wgt = file_root + ".weight.fits"
+    outfile_sci = file_root + "_diff.fits"
+    outfile_wgt = file_root + "_diff.weight.fits"
     template_sci = os.path.join(path_root,"template_c%d.fits" % ccd)
     template_wgt = os.path.join(path_root,"template_c%d.weight.fits" % ccd)
     hotpants_pars = ''.join(open(hotpants_file,'r').readlines())
@@ -24,8 +24,6 @@ def difference(file_info):
         command = 'hotpants -inim %s -ini %s -tmplim %s -tni %s -outim %s -oni %s -useWeight %s'
         args = (file_sci,file_wgt,template_sci,template_wgt,outfile_sci,outfile_wgt,hotpants_pars)
         code = bash(command % args)
-        #safe_rm(file_sci)
-        #safe_rm(file_wgt)
         # Handle HOTPANTS fatal error
         if code != 0:
             print('***HOTPANTS FATAL ERROR**')
@@ -146,7 +144,8 @@ class Pipeline:
             args = (swarp_temp_list,self.swarp_file,template_sci,template_wgt,num_threads,resample_dir)
             bash(command % args)
         # Align
-        info_list_swarp = np.array(swarp_all_list.split(), dtype=[('path','|S200')])
+        info_list_swarp = info_list
+        info_list_swarp['path'] = swarp_all_list.split()
         clean_tpool(self.align,info_list_swarp,num_threads)
         # Extract sources
         command = 'sex %s -WEIGHT_IMAGE %s  -CATALOG_NAME %s -c %s -MAG_ZEROPOINT 22.5 %s'
@@ -156,12 +155,12 @@ class Pipeline:
     
     def align(self,info_list):
         filename_in = info_list["path"]
+        ccd = info_list["ccd"]
         # project and align images to template
         file_root = filename_in[0:-5]
         path_root = os.path.dirname(filename_in)
         filename_out = file_root+"_proj.fits"
         file_header = file_root+"_proj.head"
-        ccd = int(os.path.basename(filename_in).split('_c')[1][:2])
         template_sci = os.path.join(path_root,"template_c%d.fits"%ccd)
         # symbolic link for header geometry
         if not os.path.exists(filename_out):
@@ -306,7 +305,7 @@ class Pipeline:
             print('Running CCD %d.' % ccd)
             file_info_template = file_info_all[file_info_all['ccd']==ccd]
             if len(file_info_template) == 0: continue
-            print('Makign template')
+            print('Making template')
             code = self.make_template(file_info_template,sn=False,num_threads=num_threads)
             if code != 0: continue
             print('Querying overlapping CCDs images.')
@@ -315,11 +314,15 @@ class Pipeline:
             image_list = query_sci.get_image_info_overlap(file_info_template['ramin'][0],file_info_template['ramax'][0],
                                                          file_info_template['decmin'][0],file_info_template['decmax'][0],
                                                          band=band)
+            if image_list is None:
+                print('***Error: No overlapping images found.***')
+                return
             print('Downloading images, making weight maps and image masks.')
             file_info = clean_tpool(self.download_image,image_list,num_threads)
             print("Downloaded %d images" % len(file_info))
             file_info = clean_tpool(self.make_weight,file_info,num_threads)
-            # TODO: Add template name to file_info!!!!
+            # Small hack to set the image CCD to the template's CCD
+            file_info['ccd'] = np.full(len(file_info), ccd)
             print('Aligning frames.')
             info_list = clean_tpool(self.align,file_info,num_threads=num_threads)
             # make difference images
