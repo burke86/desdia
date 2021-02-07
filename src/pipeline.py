@@ -1,7 +1,6 @@
 import os, sys
 import numpy as np
 from misc import *
-print('done pipe')
 
 def difference(file_info):
     # Get DES hotpants files (TEMPORARY)
@@ -37,12 +36,11 @@ def difference(file_info):
 
 class Pipeline:
 
-    def __init__(self,bands,usr,psw,work_dir,out_dir,top_dir=None,debug_mode=False):
+    def __init__(self,bands,usr,psw,work_dir,top_dir=None,debug_mode=False):
         self.bands = bands
         self.usr = usr
         self.psw = psw
         self.tile_dir = work_dir
-        self.out_dir = out_dir
         self.debug_mode = debug_mode
         # setup directories
         top_path = os.path.abspath(__file__)
@@ -68,8 +66,6 @@ class Pipeline:
         # make directories
         if not os.path.exists(self.tile_dir):
             os.makedirs(self.tile_dir)
-        if not os.path.exists(self.out_dir):
-            os.makedirs(self.out_dir)
 
     def download_image(self,info_list):
         # download image from image archive server
@@ -163,9 +159,15 @@ class Pipeline:
         file_header = file_root+"_proj.head"
         template_sci = os.path.join(path_root,"template_c%d.fits"%ccd)
         # symbolic link for header geometry
+        print('bebug')
         if not os.path.exists(filename_out):
+            print('swarp')
             bash('ln -s %s %s' % (template_sci,file_header))
-            bash('swarp %s -c %s -NTHREADS %d -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s.weight.fits -RESAMPLE_DIR %s' % (filename_in,self.swarp_file,1,filename_out,filename_out[0:-5],path_root))
+            # This filename_in.head file should be the ouput WCS!!
+            bash('swarp %s -c %s -NTHREADS %d -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s.weight.fits -RESAMPLE_DIR %s' % (filename_in,self.swarp_file,1,filename_out,filename_out[0:-5],path_root), True)
+            # Should get a warning that it is using .head
+        else:
+            print('out file exists')
         info_list["path"] = filename_out
         return info_list
 
@@ -189,6 +191,7 @@ class Pipeline:
         f5_list = []; ferr5_list = []
         # difference catalog
         for i, diff_cat_file in enumerate(diff_cat):
+            print('OK:', diff_cat_file)
             try:
                 num,ra,dec,df3,df4,df5,dferr3,dferr4,dferr5 = np.loadtxt(str(diff_cat_file), unpack=True)
             except:
@@ -247,8 +250,8 @@ class Pipeline:
         ccd = info_list["ccd"]
         file_root = local_path[0:-5]
         path_root = os.path.dirname(local_path)
-        outfile_sci = file_root + "_proj_diff.fits"
-        outfile_wgt = file_root + "_proj_diff.weight.fits"
+        outfile_sci = file_root + "_diff.fits"
+        outfile_wgt = file_root + "_diff.weight.fits"
         template_sci = os.path.join(path_root,"template_c%d.fits" % ccd)
         template_wgt = os.path.join(path_root,"template_c%d.weight.fits" % ccd)
         outfile_cat = file_root + "_diff.cat"
@@ -258,8 +261,6 @@ class Pipeline:
             command = 'sex %s,%s -WEIGHT_IMAGE %s,%s  -CATALOG_NAME %s -c %s -MAG_ZEROPOINT 30.753 %s'
             args = (template_sci,outfile_sci,template_wgt,outfile_wgt,outfile_cat,self.sex_file,self.sex_pars)
             code = bash(command % args)
-        safe_rm(outfile_sci, self.debug_mode)
-        safe_rm(outfile_wgt, self.debug_mode)
         if code != 0 or not os.path.exists(outfile_cat): return None
         # Update to catalog file
         info_list["path"] = outfile_cat
@@ -328,6 +329,7 @@ class Pipeline:
             # make difference images
             # we should be good with this! No need to combine ones taken on the same night anymore ;)
             # they will come through nicely by sorting the catalogs afterwords
+                        
             print('Differencing images.')
             clean_pool(difference,file_info,num_threads)
             # forced photometry
@@ -339,58 +341,3 @@ class Pipeline:
             # clean directory
         return
     
-    def run_survey_template(self,image_list,num_threads,tile_head,fermigrid=False):
-        ## DEPRICATED!!!! DO not use
-        # given list of single-epoch image filenames in same tile or region, execute pipeline
-        print('Pooling %d single-epoch images to %d threads.' % (len(image_list),num_threads))
-        print('Downloading images, making weight maps and image masks.')
-        file_info = clean_tpool(self.download_image, image_list, num_threads)
-        print("Downloaded %d images" % len(file_info))
-        file_info = clean_tpool(self.make_weight, file_info, num_threads)
-        # combine exposures with same MJD (tile mode only)
-        print('Tiling CCD images.')
-        file_info = self.combine_night(file_info,tile_head,num_threads=num_threads)
-        if len(file_info) < self.min_epoch:
-            print("Not enough epochs in tile.")
-            sys.exit(0)
-        # SPLIT INTO REGIONS
-        # make template from Y3
-        # for i in regions:
-        file_info_template = file_info[(file_info["mjd_obs"]>57200) & (file_info["mjd_obs"]<57550)]
-        template_sci = os.path.join(self.tile_dir,'template.fits')
-        template_wgt = os.path.join(self.tile_dir,'template.weight.fits')
-        # get lists for template creation and projection
-        swarp_temp_list = " ".join(file_info_template["path"])
-        swarp_all_list = " ".join(file_info["path"])
-        self.template_mag_zero = np.median(file_info_template["mag_zero"])
-        self.template_sigma_mag_zero = np.median(file_info_template["sigma_mag_zero"])
-        # create template (coadd of best frames)
-        s = swarp_temp_list.split()
-        resample_dir = os.path.dirname(template_sci)
-        bash('ln -s %s %s.head' % (s[0],template_sci[0:-5]))
-        bash('swarp %s -c %s -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s -NTHREADS %d -RESAMPLE_DIR %s' % (swarp_temp_list,self.swarp_file,template_sci,template_wgt,num_threads,resample_dir))
-        # project (re-align) images onto template
-        print('Aligning images.')
-        clean_tpool(self.align,swarp_all_list.split(),num_threads)
-        # make difference images
-        print('Differencing images.')
-        clean_pool(difference,file_info,num_threads)
-        # forced photometry
-        print('Performing forced photometry.')
-        cat_list = clean_tpool(self.forced_photometry,file_info,num_threads)
-        # get objects from template file
-        template_cat = os.path.join(self.tile_dir,'template.cat')
-        bash('sex %s -WEIGHT_IMAGE %s  -CATALOG_NAME %s -c %s -MAG_ZEROPOINT %f %s' % (template_sci,template_wgt,template_cat,self.sex_file,self.template_mag_zero,self.sex_pars))
-        # write lightcurve data
-        print('Generating light curves.')
-        self.generate_light_curves(cat_list)
-        # clean directory
-        safe_rm(template_cat, self.debug_mode)
-        for cat_file in cat_list:
-            safe_rm(str(cat_file['file']))
-            safe_rm('%s.head' % template_sci[0:-5])
-        # remove template files
-        safe_rm(template_sci, self.debug_mode)
-        safe_rm(template_wgt, self.debug_mode)
-        safe_rm(template_sci[0:-5]+".head", self.debug_mode)
-        return

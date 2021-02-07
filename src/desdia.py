@@ -38,11 +38,11 @@ def start_tile(tilename,ccd=None,band='g',work_dir='./work',out_dir=None,threads
     print("Querying single-epoch images for tile/field %s." % tilename)
     # get reduced filenames
     # DEPRICATED
-    if tilename.startswith('DES'):
-        # get archive urls and other info
-        image_list = query_sci.get_image_info_tile(tilename,band)
-        print("Querying tile geometery.")
-        tile_head = query_sci.get_tile_head(tilename,band)
+    #if tilename.startswith('DES'):
+    #    # get archive urls and other info
+    #    image_list = query_sci.get_image_info_tile(tilename,band)
+    #    print("Querying tile geometery.")
+    #    tile_head = query_sci.get_tile_head(tilename,band)
     # Supernova field
     if tilename.startswith('SN-') or tilename.lower() == "cosmos": # tilename is the fieldname in this case
         image_list = query_sci.get_image_info_field(tilename,band)
@@ -51,7 +51,7 @@ def start_tile(tilename,ccd=None,band='g',work_dir='./work',out_dir=None,threads
         # Load pointings table
         num = int(tilename.split('-')[1])
         dtype = [('tra',float),('tdec',float),('mjd_obs',float)]
-        data = np.genfromtxt('y3point.csv',delimiter=',',skip_header=1,dtype=dtype)
+        data = np.genfromtxt('etc/y3point.csv',delimiter=',',skip_header=1,dtype=dtype)
         data = data[num] # Get the pointing number
         image_list = query_sci.get_image_info_Y3_pointing(data['tra'],data['tdec'],data['mjd_obs'],band='g')
     else:
@@ -94,7 +94,6 @@ def main():
     parser.add_argument('-f','--filter',type=str,default='g',help='filter to use')
     parser.add_argument('-n','--threads',type=int,default=1,help='number of threads')
     args = parser.parse_args()
-    print('got args')
     tile = np.asscalar(np.asarray(args.pointing))
     band = np.asscalar(np.asarray(args.filter))
     work_dir = np.asscalar(np.asarray(args.work_dir))
@@ -116,21 +115,21 @@ def main():
         import warnings
         warnings.filterwarnings("ignore")
     # wide survey mode (in FermiGrid environment)
-    if args.grid == True:
-        # get all tile names
-        tile_info = np.load(os.path.join(os.environ["CONDOR_DIR_INPUT"],"tile_info.npy"))
-        # use process number to select tile
-        num_proc = int(os.environ["PROCESS"])
-        if args.tile == "all_survey": # 12,966 tiles
-            # Note: this is too many to submit to the grid (current limit is 10k)
-            tile_list = query_sci.get_all_tilenames()
-            tile = tile_info[num_proc][0]
-        elif args.tile == "stripe82": # 652 tiles
-            select_dec = (abs(tile_info["dec_cent"])-tile_info["dec_size"])<1.266
-            select_ra = ((tile_info["ra_cent"]-tile_info["ra_size"]) < 60) | ((tile_info["ra_cent"]+tile_info["ra_size"]) > 300.5)
-            tile_info = tile_info[select_dec & select_ra]
-            tile = tile_info[num_proc][0]
-        start_tile(tile,args.ccd,band,work_dir,out_dir,threads,args.debug)
+    #if args.grid == True:
+    #    # get all tile names
+    #    tile_info = np.load(os.path.join(os.environ["CONDOR_DIR_INPUT"],"tile_info.npy"))
+    #    # use process number to select tile
+    #    num_proc = int(os.environ["PROCESS"])
+    #    if args.tile == "all_survey": # 12,966 tiles
+    #        # Note: this is too many to submit to the grid (current limit is 10k)
+    #        tile_list = query_sci.get_all_tilenames()
+    #        tile = tile_info[num_proc][0]
+    #    elif args.tile == "stripe82": # 652 tiles
+    #        select_dec = (abs(tile_info["dec_cent"])-tile_info["dec_size"])<1.266
+    #        select_ra = ((tile_info["ra_cent"]-tile_info["ra_size"]) < 60) | ((tile_info["ra_cent"]+tile_info["ra_size"]) > 300.5)
+    #        tile_info = tile_info[select_dec & select_ra]
+    #        tile = tile_info[num_proc][0]
+    #    start_tile(tile,args.ccd,band,work_dir,out_dir,threads,args.debug)
     # single-tile mode
     start_tile(tile,args.ccd,band,work_dir,out_dir,threads,args.debug)
     return
