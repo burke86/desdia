@@ -111,7 +111,8 @@ class Pipeline:
     def make_template(self, info_list, sn=True, num_threads=1):
         # Use Y3 images
         ccd = info_list["ccd"][0]
-        info_list_template = info_list[(info_list["mjd_obs"]>57200) & (info_list["mjd_obs"]<57550)]
+        #info_list_template = info_list[(info_list["mjd_obs"]>57200) & (info_list["mjd_obs"]<57550)]
+        info_list_template = info_list[(info_list["mjd_obs"]>58250) & (info_list["mjd_obs"]<58615)] # Y6
         if len(info_list_template) ==  0:
             print("No Y3 images to generate template!")
             return 1
@@ -309,7 +310,7 @@ class Pipeline:
             print('Making template')
             code = self.make_template(file_info_template,sn=False,num_threads=num_threads)
             if code != 0: continue
-            print('Querying overlapping CCDs images.')
+            print('Querying overlapping CCD images.')
             # Now query images which overlap with this template CCD
             # (dithering prevents us from using same CCD ID as in SN fields)
             image_list = query_sci.get_image_info_overlap(file_info_template['ramin'][0],file_info_template['ramax'][0],

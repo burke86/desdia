@@ -7,23 +7,27 @@ Produce difference imaging light curves for the dark energy survey in an automat
 
 ### Usage:
 
-Needs to be run using the EUPS environment after installing packages in the `source.me` file. The input is a DES field name (e.g. SN-C3) or, for the wide-area field, tile name (e.g. DES0251+0043):
+Needs to be run using the EUPS environment after installing packages in the `source.me` file. The input is either DES field name (e.g. SN-C3) or, for the wide-area field, an integer value corresponding to the template pointing.
 
-`./desdia field/pointing -n threads -w work directory -o output directory`
 
-If you want to run a particular source, you will need to first query the field/tile name first using easyaccess.
+#### Supernova/COSMOS Fields
 
-#### Supernova Fields
+The `-c` flag can be used to specify the CCD. The `-n` flag specifies the number of threads to use. Due to invalid keywords in image headers, supressing warnings with `--nowarn` is recommended. Example:
 
-The `-c` flag can be used to specify the CCD. Due to invalid keywords in image headers, supressing warnings is recommeded. Example:
+`./desdia --field SN-C3 -n 30 -c 1 -w /data/des80.a/data/user/ --nowarn`
 
-`./desdia SN-C3 -n 30 -c 1 -w /data/des80.a/data/user/ --nowarn`
+`./desdia --field COSMOS -n 30 -c 1 -w /data/des80.a/data/user/ --nowarn`
+
 
 #### Wide-Area (Main Survey)
 
-For the wide-area survey, specify the pointing number (value from 0-2180; see `y3point.csv` file). Each pointing will be split into CCDs using a Y3 template (or the CCD specified with the `-c` flag):
+For the wide-area survey, specify the pointing number (value from 0-2038; see `y6point.csv` file). Each pointing will be split into regions (or a CCD if specified with the `-c` flag) using a template constructed from Y6 pointings:
 
-`./desdia SURVEY-1 -n 30 -w /data/des80.a/data/user/ --nowarn`
+`./desdia --survey 1 -n 30 -w /data/des80.a/data/user/ --nowarn`
+
+If you are only interested in a single target, the code will find the pointing and CCD number for you:
+
+`./desdia --survey TARGET --ra 337.653325476 --dec -0.110275781 -n 30 -w /data/des80.a/data/user/ --nowarn`
 
 ### Output:
 
