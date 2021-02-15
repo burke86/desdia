@@ -160,7 +160,6 @@ class Pipeline:
         file_header = file_root+"_proj.head"
         template_sci = os.path.join(path_root,"template_c%d.fits"%ccd)
         # symbolic link for header geometry
-        print('bebug')
         if not os.path.exists(filename_out):
             print('swarp')
             bash('ln -s %s %s' % (template_sci,file_header))
@@ -192,16 +191,16 @@ class Pipeline:
         f5_list = []; ferr5_list = []
         # difference catalog
         for i, diff_cat_file in enumerate(diff_cat):
-            print('OK:', diff_cat_file)
+            #print('OK:', diff_cat_file)
             try:
                 num,ra,dec,df3,df4,df5,dferr3,dferr4,dferr5 = np.loadtxt(str(diff_cat_file), unpack=True)
             except:
                 continue
             mjd = np.full(len(num), mjds[i])
             # bad photometry
-            df3[np.abs(df3)<1e-29] = np.nan
-            df4[np.abs(df4)<1e-29] = np.nan
-            df5[np.abs(df5)<1e-29] = np.nan
+            #df3[np.abs(df3)<1e-29] = np.nan
+            #df4[np.abs(df4)<1e-29] = np.nan
+            #df5[np.abs(df5)<1e-29] = np.nan
             # save light curves
             #print(np.shape([f3,df3]))
             f3 = np.sum([f3_temp,df3],axis=0)
