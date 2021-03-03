@@ -1,6 +1,6 @@
 #!/bin/bash
-source /home/s1/cburke/eups/desdm_eups_setup.sh
-export DES_SERVICES=/home/s1/cburke/.desservices.ini
+source ${HOME}/eups/desdm_eups_setup.sh
+export DES_SERVICES=${HOME}/.desservices.ini
 setup despydb 2.0.6+0
 setup despymisc
 setup diffimg
