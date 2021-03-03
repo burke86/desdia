@@ -14,20 +14,20 @@ Needs to be run using the EUPS environment after installing packages in the `sou
 
 The `-c` flag can be used to specify the CCD. The `-n` flag specifies the number of threads to use. Due to invalid keywords in image headers, supressing warnings with `--nowarn` is recommended. Example:
 
-`./desdia --field SN-C3 -n 30 -c 1 -w /data/des80.a/data/user/ --nowarn`
+`./desdia --field SN-C3 -n 30 -c 1 -w /data/des80.a/data/${USER}/ --nowarn`
 
-`./desdia --field COSMOS -n 30 -c 1 -w /data/des80.a/data/user/ --nowarn`
+`./desdia --field COSMOS -n 30 -c 1 -w /data/des80.a/data/${USER}/ --nowarn`
 
 
 #### Wide-Area (Main Survey)
 
 For the wide-area survey, specify the pointing number (value from 0-2038; see `y6point.csv` file). Each pointing will be split into regions (or a CCD if specified with the `-c` flag) using a template constructed from Y6 pointings:
 
-`./desdia --survey 1 -n 30 -w /data/des80.a/data/user/ --nowarn`
+`./desdia --survey 1 -n 30 -w /data/des80.a/data/${USER}/ --nowarn`
 
 If you are only interested in a single target, the code will find the pointing and CCD number for you:
 
-`./desdia --survey TARGET --ra 337.653325476 --dec -0.110275781 -n 30 -w /data/des80.a/data/user/ --nowarn`
+`./desdia --survey TARGET --ra 337.653325476 --dec -0.110275781 -n 30 -w /data/des80.a/data/${USER}/ --nowarn`
 
 ### Output:
 
