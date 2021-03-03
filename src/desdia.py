@@ -11,11 +11,11 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,band='g',work_di
     max_threads = 32
     top_dir = None
     fermigrid = False
-    xfer_dir = "/pnfs/des/persistent/cburke"
+    xfer_dir = "/pnfs/des/persistent/${USER}"
     # If code is running on grid
     if work_dir == '_CONDOR_SCRATCH_DIR':
         # See if tile already exists
-        xfer_dir = "/pnfs/des/persistent/cburke"
+        xfer_dir = "/pnfs/des/persistent/${USER}"
         exists_path = os.path.join(xfer_dir,"%s.tar.gz" % pointing)
         s = commands.getstatusoutput('ifdh ls %s' % exists_path)
         if exists_path in s[1].splitlines():
