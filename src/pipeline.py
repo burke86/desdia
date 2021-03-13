@@ -66,6 +66,7 @@ class Pipeline:
         # make directories
         if not os.path.exists(self.tile_dir):
             os.makedirs(self.tile_dir)
+    
 
     def download_image(self,info_list):
         # download image from image archive server
@@ -107,12 +108,51 @@ class Pipeline:
             return info_list
         except:
             return None
-
-    def make_template(self, info_list, sn=True, num_threads=1):
+    
+        
+    def make_coadd_diff(self, info_list, num_threads=1):
         # Use Y3 images
         ccd = info_list["ccd"][0]
-        #info_list_template = info_list[(info_list["mjd_obs"]>57200) & (info_list["mjd_obs"]<57550)]
-        info_list_template = info_list[(info_list["mjd_obs"]>58250) & (info_list["mjd_obs"]<58615)] # Y6
+        if len(info_list) == 0:
+            print("No images to generate coadd!")
+            return 1
+        coadd_sci = os.path.join(self.tile_dir,'coadd_diff_c%d.fits' % ccd)
+        coadd_wgt = os.path.join(self.tile_dir,'coadd_diff_c%d.weight.fits' % ccd)
+        # get lists for template creation and projection
+        info_list_abs = []
+        # Take absolute value of image
+        for i, f in enumerate(info_list["path"]):
+            try:
+                with fits.open(f[:-4]+".fits") as hdul:
+                    hdu = hdul[0]
+                    hdu = fits.PrimaryHDU((hdu.data)**2, hdu.header)
+                    f_abs = f[:-4] + "_abs.fits"
+                    hdu.writeto(f_abs, clobber=True)
+                    info_list_abs.append(f_abs)
+                    bash('ln -s %s %s' % (f[:-4]+".weight.fits", f[:-4]+"_abs.weight.fits"))
+            except:
+                pass
+        # Create swarp list
+        swarp_all_list = " ".join(info_list_abs)
+        # create coadd
+        s = swarp_all_list.split()
+        resample_dir = os.path.dirname(coadd_sci)
+        if not os.path.exists(coadd_sci):
+            bash('ln -s %s %s.head' % (s[0], coadd_sci[0:-5]))
+            command = 'swarp %s -c %s -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s -NTHREADS %d -RESAMPLE_DIR %s'
+            args = (swarp_all_list,self.swarp_file,coadd_sci,coadd_wgt,num_threads,resample_dir)
+            bash(command % args)
+        return 0
+    
+
+    def make_template(self, info_list, sn=True, season=6, num_threads=1):
+        # Use Y3 images
+        ccd = info_list["ccd"][0]
+        t0_Y6 = 58250
+        t1_Y6 = 58615
+        t0 = t0_Y6 + 365*(season - 6)
+        t1 = t1_Y6 + 365*(season - 6)
+        info_list_template = info_list[(info_list["mjd_obs"] > t0) & (info_list["mjd_obs"] < t1)] # Y6
         if len(info_list_template) ==  0:
             print("No Y3 images to generate template!")
             return 1
@@ -150,6 +190,7 @@ class Pipeline:
         bash(command % args)
         return 0
     
+    
     def align(self,info_list):
         filename_in = info_list["path"]
         ccd = info_list["ccd"]
@@ -161,7 +202,6 @@ class Pipeline:
         template_sci = os.path.join(path_root,"template_c%d.fits"%ccd)
         # symbolic link for header geometry
         if not os.path.exists(filename_out):
-            print('swarp')
             bash('ln -s %s %s' % (template_sci,file_header))
             # This filename_in.head file should be the ouput WCS!!
             bash('swarp %s -c %s -NTHREADS %d -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s.weight.fits -RESAMPLE_DIR %s' % (filename_in,self.swarp_file,1,filename_out,filename_out[0:-5],path_root), True)
@@ -170,7 +210,7 @@ class Pipeline:
             print('out file exists')
         info_list["path"] = filename_out
         return info_list
-
+    
 
     def generate_light_curves(self,info_list):
         # generates light curve files from list of sextractor catalogs
@@ -191,21 +231,20 @@ class Pipeline:
         f5_list = []; ferr5_list = []
         # difference catalog
         for i, diff_cat_file in enumerate(diff_cat):
-            #print('OK:', diff_cat_file)
             try:
                 num,ra,dec,df3,df4,df5,dferr3,dferr4,dferr5 = np.loadtxt(str(diff_cat_file), unpack=True)
             except:
                 continue
             mjd = np.full(len(num), mjds[i])
-            # bad photometry
-            #df3[np.abs(df3)<1e-29] = np.nan
-            #df4[np.abs(df4)<1e-29] = np.nan
-            #df5[np.abs(df5)<1e-29] = np.nan
-            # save light curves
-            #print(np.shape([f3,df3]))
+            # Bad photometry
+            df3[np.abs(df3)<1e-29] = np.nan
+            df4[np.abs(df4)<1e-29] = np.nan
+            df5[np.abs(df5)<1e-29] = np.nan
+            # Save light curves
             f3 = np.sum([f3_temp,df3],axis=0)
             f4 = np.sum([f4_temp,df4],axis=0)
             f5 = np.sum([f5_temp,df5],axis=0)
+            # Add errors in quadrature
             ferr3 = np.sqrt(np.sum([ferr3_temp**2,dferr3**2],axis=0))
             ferr4 = np.sqrt(np.sum([ferr4_temp**2,dferr4**2],axis=0))
             ferr5 = np.sqrt(np.sum([ferr5_temp**2,dferr5**2],axis=0))
@@ -265,8 +304,9 @@ class Pipeline:
         # Update to catalog file
         info_list["path"] = outfile_cat
         return info_list
+    
 
-    def run_ccd_sn(self,image_list,num_threads=1,fermigrid=False):
+    def run_ccd_sn(self,image_list,num_threads=1,template_season=6,fermigrid=False):
         # given list of single-epoch image filenames in same tile or region, execute pipeline
         print('Pooling %d single-epoch images to %d threads.' % (len(image_list),num_threads))
         print('Downloading images, making weight maps and image masks.')
@@ -279,7 +319,7 @@ class Pipeline:
             print('Running CCD %d.' % ccd)
             file_info = file_info_all[file_info_all['ccd']==ccd]
             if len(file_info) == 0: continue
-            code = self.make_template_sn(file_info,sn=True,num_threads=num_threads)
+            code = self.make_template(file_info,sn=True,season=template_season,num_threads=num_threads)
             if code != 0: continue
             # make difference images
             print('Differencing images.')
@@ -292,8 +332,9 @@ class Pipeline:
             self.generate_light_curves(file_info)
             # clean directory
         return
+    
 
-    def run_ccd_survey(self,image_list,query_sci,num_threads=1,fermigrid=False,band='g'):
+    def run_ccd_survey(self,image_list,query_sci,num_threads=1,template_season=6,fermigrid=False,band='g',coadd_diff=False):
         # given list of single-epoch image filenames in same pointing, execute pipeline
         print('Pooling %d single-epoch images to %d threads.' % (len(image_list),num_threads))
         print('Downloading images, making weight maps and image masks.')
@@ -307,7 +348,7 @@ class Pipeline:
             file_info_template = file_info_all[file_info_all['ccd']==ccd]
             if len(file_info_template) == 0: continue
             print('Making template')
-            code = self.make_template(file_info_template,sn=False,num_threads=num_threads)
+            code = self.make_template(file_info_template,sn=False,season=template_season,num_threads=num_threads)
             if code != 0: continue
             print('Querying overlapping CCD images.')
             # Now query images which overlap with this template CCD
@@ -329,7 +370,6 @@ class Pipeline:
             # make difference images
             # we should be good with this! No need to combine ones taken on the same night anymore ;)
             # they will come through nicely by sorting the catalogs afterwords
-                        
             print('Differencing images.')
             clean_pool(difference,file_info,num_threads)
             # forced photometry
@@ -338,6 +378,10 @@ class Pipeline:
             # write lightcurve data
             print('Generating light curves.')
             self.generate_light_curves(file_info)
-            # clean directory
+            # TODO clean directory
+            # Coadd difference frames
+            if coadd_diff:
+                print('Making coadd of difference frames.')
+                self.make_coadd_diff(file_info,num_threads=num_threads)
         return
     

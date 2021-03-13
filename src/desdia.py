@@ -6,7 +6,7 @@ from random import randint
 import query, pipeline
 from misc import bash
 
-def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,band='g',work_dir='./work',out_dir=None,threads=1,debug_mode=False):
+def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=6,band='g',work_dir='./work',out_dir=None,threads=1,debug_mode=False,coadd_diff=False):
     # Start
     max_threads = 32
     top_dir = None
@@ -32,7 +32,7 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,band='g',work_di
         out_dir = os.path.join(tile_dir,band)
     # Set up database
     query_sci = query.Query('db-dessci')
-    print("Querying single-epoch images for tile/field %s." % pointing)
+    print("Querying single-epoch images for %s." % pointing)
     # Get reduced filenames and related info
     # Supernova field
     if pointing.startswith('SN-') or pointing.lower() == "cosmos":
@@ -48,9 +48,8 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,band='g',work_di
             # Get template filename info at requested pointing
             image_list = query_sci.get_image_info_pointing(data['tra'],data['tdec'],data['mjd_obs'],band=band)
         else:
-            ## KNOWN ISSUE (!!): This will fail if the target falls within a Y6 chip/dither gap. You then need to try different template season/pointing.
             # Get template pointing at target
-            pointing_list = query_sci.get_Y6_pointing_coord(targetra,targetdec,band=band) # (!!) Add template season argument
+            pointing_list = query_sci.get_pointing_coord(targetra,targetdec,band,template_season)
             # Get template filename info at requested pointing
             image_list = query_sci.get_image_info_pointing(pointing_list['TRADEG'][0],pointing_list['TDECDEG'][0],pointing_list['mjd_obs'][0],band=band)
             ccd = pointing_list['ccd']
@@ -70,11 +69,11 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,band='g',work_di
     # Supernova field
     if pointing.startswith('SN-') or pointing.lower() == "cosmos":
         # Here image_list is all image info
-        des_pipeline.run_ccd_sn(image_list,num_threads,fermigrid)
+        des_pipeline.run_ccd_sn(image_list,num_threads,template_season,fermigrid)
     # Main survey
     else:
         # Here image_list is just the template image info
-        des_pipeline.run_ccd_survey(image_list,query_sci,num_threads,fermigrid)
+        des_pipeline.run_ccd_survey(image_list,query_sci,num_threads,template_season,fermigrid,band,coadd_diff)
     # Save data to out_dir
     print('Compressing and transfering files.')
     # Compress and transfer files
@@ -96,11 +95,12 @@ def main():
     parser.add_argument('-o','--out_dir',nargs='+',type=str,default=None,help='Output directory')
     parser.add_argument('--grid',action='store_true',help='Run for all tiles on fermigrid')
     parser.add_argument('--debug',action='store_true',help='Run with debug mode (enhanced persistency)')
+    parser.add_argument('--coadddiff',action='store_true',help='Output coadd of squared value of difference images')
     parser.add_argument('--nowarn',action='store_true',help='Supress warnings')
     parser.add_argument('-f','--filter',type=str,default='g',help='Filter to use')
     parser.add_argument('-n','--threads',type=int,default=1,help='Number of threads')
+    parser.add_argument('-s','--season',type=int,default=6,help='Template season to use Y[0-6]')
     args = parser.parse_args()
-    #field = np.asscalar(np.asarray(args.field))
     band = np.asscalar(np.asarray(args.filter))
     work_dir = np.asscalar(np.asarray(args.work_dir))
     out_dir = np.asscalar(np.asarray(args.out_dir))
@@ -134,9 +134,11 @@ def main():
     else:
         print("CCD:            %d" % args.ccd)
     print("Band:           %s" % band)
+    print("Template:      Y%d" % args.season)
     print("Work directory: %s" % work_dir)
-    print("Threads:        %s" % args.threads)
+    print("Threads:        %d" % args.threads)
     print("Debug mode:     %d" % args.debug)
+    print("Coadd diff:     %d" % args.coadddiff)
     print("==============================================")
     if args.nowarn == True:
         import warnings
@@ -158,8 +160,7 @@ def main():
     #        tile = tile_info[num_proc][0]
     #    start_tile(tile,args.ccd,band,work_dir,out_dir,threads,args.debug)
     # single-tile mode
-    print(pointing)
-    start_desdia(pointing,args.ccd,args.ra,args.dec,band,work_dir,out_dir,args.threads,args.debug)
+    start_desdia(pointing,args.ccd,args.ra,args.dec,args.season,band,work_dir,out_dir,args.threads,args.debug,args.coadddiff)
     return
 
 if __name__ == "__main__":

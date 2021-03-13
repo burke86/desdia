@@ -16,6 +16,7 @@ class Query:
         # start connection
         self.con = desdbi.DesDbi(self.desdmfile,section)
         self.cur = self.con.cursor()
+        
 
     def get_filenames_from_object(self,ra,dec,band,window_radius=10):
         # get reduced filename from RA, DEC of object
@@ -40,35 +41,15 @@ class Query:
         else:
             return None
 
-
-    def get_all_tilenames(self):
-        # get tilenames for whole survey
-        get_list = "select distinct tilename from Y6A1_IMAGE_TO_TILE"
-        self.cur.execute(get_list)
-        info_list = self.cur.fetchall()
-        get_list = "select distinct tilename from Y4A1_IMAGE_TO_TILE"
-        self.cur.execute(get_list)
-        info_list += self.cur.fetchall()
-        dtype = [("tilename","|S41")]
-        tilename_list = np.array(info_list,dtype=dtype)
-        tilename_list = np.unique(tilename_list)
-        # save for future use
-        return tilename_list
     
-    
-    def get_Y3_pointings(self,band='g'):
-        # Get list of unique Y3 pointings in the main DES survey to build templates
-        get_list = "select unique e.TRADEG, e.TDECDEG, e.mjd_obs from Y6A1_EXPOSURE e where e.mjd_obs>57200 and e.mjd_obs<57550 and e.PROGRAM='survey' and e.band=:band"
-        self.cur.execute(get_list,band=band)
-        info_list = self.cur.fetchall()
-        dtype = [("TRADEG",float),("TDECDEG",float),("mjd_obs",float)]
-        info_list = np.array(info_list,dtype=dtype)
-        return info_list
-    
-    def get_Y6_pointing_coord(self,ra,dec,band='g'):
-        # Get list of unique Y6 pointing of target given RA and dec in the main DES survey
-        get_list = "select unique e.tradeg, e.tdecdeg, e.mjd_obs, i.ccdnum from y6a1_image i, y6a1_exposure e where e.mjd_obs>58250 and e.mjd_obs<58615 and e.PROGRAM='survey' and i.expnum=e.expnum and (:ra between i.racmin and i.racmax) and (:dec between i.deccmin and i.deccmax) and i.band=:band"
-        self.cur.execute(get_list,ra=ra,dec=dec,band=band)
+    def get_pointing_coord(self,ra,dec,band='g',season=6):
+        # Get list of unique Y? pointing of target given RA and dec in the main DES survey
+        t0_Y6 = 58250
+        t1_Y6 = 58615
+        t0 = t0_Y6 + 365*(season - 6)
+        t1 = t1_Y6 + 365*(season - 6)
+        get_list = "select unique e.tradeg, e.tdecdeg, e.mjd_obs, i.ccdnum from y6a1_image i, y6a1_exposure e where e.mjd_obs>:t0 and e.mjd_obs<:t1 and e.PROGRAM='survey' and i.expnum=e.expnum and (:ra between i.racmin and i.racmax) and (:dec between i.deccmin and i.deccmax) and i.band=:band"
+        self.cur.execute(get_list,ra=ra,dec=dec,t0=t0,t1=t1,band=band)
         info_list = self.cur.fetchall()
         if len(info_list) > 0:
             # Use the first pointing if there are multiple overlapping
@@ -79,6 +60,7 @@ class Query:
             return info_list
         else:
             return None
+        
     
     def get_image_info_pointing(self,tra,tdec,mjd_obs,band='g'):
         # Get image archive info (URL) from specific pointing and MJD (to generate templates)
@@ -102,7 +84,7 @@ class Query:
     
     
     def get_image_info_overlap(self,ramin,ramax,decmin,decmax,band='g'):
-        # EDGE CASE WHEN  RACROSS0
+        # TODO: EDGE CASE WHEN  RACROSS0
         base_url = "https://desar2.cosmology.illinois.edu/DESFiles/desarchive/"
         # Get image archive info (URL) at main survey telescope pointing
         # Get Y1-Y6 images
