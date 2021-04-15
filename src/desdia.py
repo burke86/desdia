@@ -6,7 +6,7 @@ from random import randint
 import query, pipeline
 from misc import bash
 
-def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=6,band='g',work_dir='./work',out_dir=None,threads=1,debug_mode=False,coadd_diff=False):
+def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=6,band='g',work_dir='./work',out_dir=None,threads=1,debug_mode=False,offset=False):
     # Start
     max_threads = 32
     top_dir = None
@@ -28,8 +28,8 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
         time.sleep(randint(1,10)) # Be less harsh on database
     # Create directory for tile
     tile_dir = os.path.join(work_dir,pointing)
-    if out_dir is None:
-        out_dir = os.path.join(tile_dir,band)
+    #if out_dir is None:
+    #    out_dir = os.path.join(tile_dir,band)
     # Set up database
     query_sci = query.Query('db-dessci')
     print("Querying single-epoch images for %s." % pointing)
@@ -73,7 +73,13 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
     # Main survey
     else:
         # Here image_list is just the template image info
-        des_pipeline.run_ccd_survey(image_list,query_sci,num_threads,template_season,fermigrid,band,coadd_diff)
+        des_pipeline.run_ccd_survey(image_list,query_sci,num_threads,template_season,fermigrid,band,coadd_diff=False)
+        # Compute offsets for each CCD
+        if offset:
+            import offset
+            for ccd in image_list['ccd']:
+                print(tile_dir)
+                offset.main(tile_dir, ccd)
     # Save data to out_dir
     print('Compressing and transfering files.')
     # Compress and transfer files
@@ -95,7 +101,7 @@ def main():
     parser.add_argument('-o','--out_dir',nargs='+',type=str,default=None,help='Output directory')
     parser.add_argument('--grid',action='store_true',help='Run for all tiles on fermigrid')
     parser.add_argument('--debug',action='store_true',help='Run with debug mode (enhanced persistency)')
-    parser.add_argument('--coadddiff',action='store_true',help='Output coadd of squared value of difference images')
+    parser.add_argument('--offset',action='store_true',help='Compute offsets in DIA image')
     parser.add_argument('--nowarn',action='store_true',help='Supress warnings')
     parser.add_argument('-f','--filter',type=str,default='g',help='Filter to use')
     parser.add_argument('-n','--threads',type=int,default=1,help='Number of threads')
@@ -138,7 +144,7 @@ def main():
     print("Work directory: %s" % work_dir)
     print("Threads:        %d" % args.threads)
     print("Debug mode:     %d" % args.debug)
-    print("Coadd diff:     %d" % args.coadddiff)
+    print("offset    :     %d" % args.offset)
     print("==============================================")
     if args.nowarn == True:
         import warnings
@@ -160,7 +166,7 @@ def main():
     #        tile = tile_info[num_proc][0]
     #    start_tile(tile,args.ccd,band,work_dir,out_dir,threads,args.debug)
     # single-tile mode
-    start_desdia(pointing,args.ccd,args.ra,args.dec,args.season,band,work_dir,out_dir,args.threads,args.debug,args.coadddiff)
+    start_desdia(pointing,args.ccd,args.ra,args.dec,args.season,band,work_dir,out_dir,args.threads,args.debug,args.offset)
     return
 
 if __name__ == "__main__":
