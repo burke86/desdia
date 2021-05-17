@@ -154,7 +154,7 @@ class Pipeline:
         t1 = t1_Y6 + 365*(season - 6)
         info_list_template = info_list[(info_list["mjd_obs"] > t0) & (info_list["mjd_obs"] < t1)] # Y6
         if len(info_list_template) ==  0:
-            print("No Y3 images to generate template!")
+            print("No Y%d images to generate template!" % season)
             return 1
         if sn:
             # select sky noise < 2.5*(min sky noise), follows Kessler et al. (2015)

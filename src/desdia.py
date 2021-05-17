@@ -126,7 +126,6 @@ def main():
     elif args.field is not None:
         pointing = args.field
         print("Field:      %s" % pointing)
-    print("Template year:  Y6")
     # Single-target mode
     if args.ra is not None or args.dec is not None:
         if args.ra is None or args.dec is None:
