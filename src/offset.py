@@ -1,22 +1,23 @@
-# For main function input, go to line 524
+# For main function input, go to line 586
 
-# Last modified 4/12/21
+# Last modified 5/19/21
 import os
 import glob
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
 import math
 from math import nan
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
 import astropy.units as u
 from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.coordinates import SkyCoord
 from astropy.nddata.utils import Cutout2D
+from astropy.table import vstack, Table
 from astropy.visualization import astropy_mpl_style, SqrtStretch
 from astropy.visualization.mpl_normalize import ImageNormalize
-from photutils import DAOStarFinder, CircularAperture
+from photutils import DAOStarFinder, CircularAperture, aperture_photometry
 from scipy.stats import norm, halfnorm
 
 sns.set_theme(style='whitegrid')
@@ -183,10 +184,29 @@ def calc_mag(flux, flux_err):
     mag_err = 2.5/np.log(10)*flux_err/flux
     return mag, mag_err
 
-# Create columns converted to magnitudes (flux_col, err_col are str): 
-def lc_data(lc_df, flux_col, err_col):
-    mag, mag_err = calc_mag(lc_df[flux_col], lc_df[err_col])
-    return mag, mag_err
+# Flag certain difference images for poor photometry:
+def flag_check(photometry_table):
+    apertures = ['ap_sum_3', 'ap_sum_4', 'ap_sum_5']
+    poor_bool = []
+    
+    for i in range(len(apertures)):
+        if photometry_table[apertures[i]] < 3e-28:
+            poor_bool.append(True)
+        else:
+            poor_bool.append(False)
+
+    photometry_table.add_column(np.all(poor_bool), name='Flag')
+    return photometry_table
+
+# Pull table data for non-flagged/flagged difference images:
+def flag_data(photometry_table, flag_bool):
+    idx = np.where(photometry_table['Flag']==flag_bool)[0]
+    mjd = photometry_table['MJD'][idx]
+    cts = [photometry_table['ap_sum_3'][idx], photometry_table['ap_sum_4'][idx], 
+           photometry_table['ap_sum_5'][idx]]
+    cts_err = [photometry_table['ap_sum_3_err'][idx], photometry_table['ap_sum_4_err'][idx],
+               photometry_table['ap_sum_5_err'][idx]]
+    return idx, mjd, cts, cts_err
 
 # Compute variability statistics & add to arrays for source table:
 def var_stats(flux, flux_err, arr_snr, arr_avg, arr_sigavg, arr_rms, arr_sigrms):
@@ -201,22 +221,32 @@ def var_stats(flux, flux_err, arr_snr, arr_avg, arr_sigavg, arr_rms, arr_sigrms)
 
 # Main function:
 def main(dia_dir_path, ccd, band='g'):
-    
     des_cat_path = os.path.joing(dia_dir_path, 'template_%d' % ccd)
     
-    # READ FITS FILES:
+    ##### READ FITS FILES:
     # Difference images:
     diff_path = dia_dir_path + '/*_%s_c%d_*_*proj_diff.fits' % (band, ccd)
     diff_files = glob.glob(diff_path)
     empty_files = []
     ok_diff = []
+    
+    # Difference image weights/error:
+    dw_path = dia_dir_path + '/*proj_diff.weight.fits'
+    dw_files = glob.glob(dw_path)
+    empty_dw = []
+    ok_dw = []
 
+    print(len(dw_files), len(diff_files))
+    
+    # Filter for empty FITS files
     for i in range(len(diff_files)): 
-        if os.stat(diff_files[i]).st_size == 0: # Filter for empty FITS files
+        if os.stat(diff_files[i]).st_size == 0: 
             empty_files.append(diff_files[i])
+            empty_dw.append(dw_files[i])
         else:
             ok_diff.append(diff_files[i])
-
+            ok_dw.append(dw_files[i])
+    
     # Template image:
     temp_files= dia_dir_path + '/template_c%d.fits' % ccd
     temp_path = glob.glob(temp_files)
@@ -224,37 +254,43 @@ def main(dia_dir_path, ccd, band='g'):
         if temp_path[i].endswith('weight.fits'):
             temp_path.pop(i)
         
-    # EXTRACT DATA AND HEADERS FROM FITS FILES: 
-    # Difference images:
+    ##### PULL DATA, HEADERS FROM FITS FILES: 
+    # Difference images & weights:
     diff_data_set = []
     diff_hdr_set = []
+    dw_data_set = []
+    dw_hdr_set = []
+    
     for i in range(len(ok_diff)):
-        data, hdr = fits.getdata(ok_diff[i], header=True)
-        diff_data_set.append(data)
-        diff_hdr_set.append(hdr)
-
+        diff_data, diff_hdr = fits.getdata(ok_diff[i], header=True)
+        dw_data, dw_hdr = fits.getdata(ok_dw[i], header=True)
+        diff_data_set.append(diff_data)
+        diff_hdr_set.append(diff_hdr)
+        dw_data_set.append(dw_data)
+        dw_hdr_set.append(dw_hdr)
+    
     #Template images:
     temp_data, temp_hdr = fits.getdata(str(temp_path[0]), header=True)
+    
     ccd_path= dia_dir_path + '/' + str(temp_hdr['CCDNUM']) + 'des_offset'
     os.mkdir(ccd_path)
     
-    # CO-ADD THE DIFFERENCE IMAGES:
+    ##### CO-ADDING & COMPARING:
+    # Co-added difference image:
     abs_diff_data = np.abs(diff_data_set)
     co_add_data = np.zeros(np.shape(abs_diff_data[0]), dtype=float)
     for i in range(len(abs_diff_data)):
         co_add_data = co_add_data + abs_diff_data[i]
     
-    # COMPARE CO-ADDED DIFFERENCE & TEMPLATE IMAGES:
     # Co-added difference image:
     diff_fig, diff_ax = plt.subplots(figsize=(10,10))
     plt.style.use(astropy_mpl_style)
-    diff_im = diff_ax.imshow(co_add_data, origin='lower', cmap='gray', 
-                             vmin=0, vmax=5000)
+    diff_im = diff_ax.imshow(co_add_data, origin='lower', cmap='gray', vmin=0, vmax=5000)
     diff_fig.colorbar(diff_im, ax=diff_ax)
     diff_ax.set_title('Co-add difference image (multiple CCDs)')
     diff_ax.set_xlabel('Pixels')
     diff_ax.set_ylabel('Pixels')
-    plt.savefig((ccd_path + '/co_add.jpg'), facecolor='white', transparent=False)
+    plt.savefig((ccd_path + '/co_add.png'), facecolor='white', transparent=False)
     plt.show()
 
     # Template image:
@@ -266,10 +302,11 @@ def main(dia_dir_path, ccd, band='g'):
     temp_ax.set_title('Template image (CCD ' + str(temp_hdr['CCDNUM']) + ')')
     temp_ax.set_xlabel('Pixels')
     temp_ax.set_ylabel('Pixels')
-    plt.savefig((ccd_path +'/temp.jpg'), facecolor='white', transparent=False)
+    plt.savefig((ccd_path +'/temp.png'), facecolor='white', transparent=False)
     plt.show()
     
-    # SEARCH FOR DETECTIONS:
+    ##### SOURCE DETECTION:
+    # Search in co-added difference image:
     c_med = np.nanmedian(co_add_data)
     c_mean = np.nanmean(co_add_data)
     c_std = np.nanstd(co_add_data) 
@@ -283,12 +320,13 @@ def main(dia_dir_path, ccd, band='g'):
         diff_sources[col].info.format = '%.8g'  # for consistent table output
         # print(diff_sources)
 
+    # Search in template image:
     temp_sources = daofind(temp_data - c_med)
     for col in temp_sources.colnames:
         temp_sources[col].info.format = '%.8g'  # for consistent table output
         # print(temp_sources)
 
-    # PLOT ALL DETECTIONS:
+    # Co-added detections:
     pix_scale = diff_hdr_set[0]['PIXSCAL1'] * u.arcsec / u.pix # pixel scale is same along axis 1&2, same for all headers
     ap_pix = np.round(5*u.arcsec / pix_scale)
 
@@ -301,9 +339,10 @@ def main(dia_dir_path, ccd, band='g'):
     detect_ax.set_title('Difference image detections')
     detect_ax.set_xlabel('Pixels')
     detect_ax.set_ylabel('Pixels')
-    plt.savefig((ccd_path + '/co_add_detections.jpg'), facecolor='white', transparent=False)
+    plt.savefig((ccd_path + '/co_add_detections.png'), facecolor='white', transparent=False)
     plt.show()
 
+    # Template detections:
     temp_pos = np.transpose((temp_sources['xcentroid'], temp_sources['ycentroid']))
     temp_aps = CircularAperture(temp_pos, r=np.round(ap_pix.value/2))
     temp_fig, temp_ax = plt.subplots(figsize=(10,10))
@@ -313,10 +352,10 @@ def main(dia_dir_path, ccd, band='g'):
     temp_ax.set_title('Template image detections')
     temp_ax.set_xlabel('Pixels')
     temp_ax.set_ylabel('Pixels')
-    plt.savefig((ccd_path + '/temp_detections.jpg'), facecolor='white', transparent=False)
+    plt.savefig((ccd_path + '/temp_detections.png'), facecolor='white', transparent=False)
     plt.show()
     
-    # FIND OFFSETS:
+    # OFFSET CANDIDATE SELECTION:
     # Convert pixel coordinates to SkyCoord coordinates: 
     w_diff = WCS(diff_hdr_set[0])
     diff_skycoord = SkyCoord.from_pixel(diff_sources['xcentroid'], diff_sources['ycentroid'], w_diff)
@@ -329,10 +368,12 @@ def main(dia_dir_path, ccd, band='g'):
     # Calculate pair-wise separation:
     diff_idx, temp_idx, d2d, d3d = temp_sources['SkyCoord'].search_around_sky(diff_sources['SkyCoord'], 5*u.arcsec)
 
-    # Plots:
+    # Visualize distribution of offsets:
     fig1, (ax1, ax2, ax3) = plt.subplots(3,1, figsize = (10, 15), sharex=True, tight_layout=True)
+    
     sns.histplot(data=d2d.to(u.arcsec).value, x=d2d.to(u.arcsec).value, ax=ax1, stat='count', kde=True, color='green')
     ax1.set(xlabel="Separation ('')", ylabel="Counts", title="Raw data + KDE");
+    
     sns.histplot(data=d2d.to(u.arcsec).value, x=d2d.to(u.arcsec).value, ax=ax2, stat='probability', kde=True, color='blue')
     ax2.set(xlabel="Separation ('')", ylabel="Probability", title="Normed data + KDE");
 
@@ -347,25 +388,25 @@ def main(dia_dir_path, ccd, band='g'):
     sns.histplot(data=d2d.to(u.arcsec).value, x=d2d.to(u.arcsec).value, ax=ax3, stat='density')
     ax3.set(xlabel="Separation ('')", ylabel="Density", title="Offset Distribution")
     ax3.legend(loc='best')
-    plt.savefig((ccd_path + '/offset_dist.jpg'), facecolor='white', transparent=False)
+    plt.savefig((ccd_path + '/offset_dist.png'), facecolor='white', transparent=False)
 
     gauss = "Gaussian results: mu = %.2f,  std = %.2f" % (mu, std)
     hnorm = "Half-norm results: mu = %.2f, std=%.2f" % (halfnorm.mean(), halfnorm.std())
     print(gauss, hnorm)
     
-    # CANDIDATE SELECTION: 
-    # Pick a statistic, only include matches withing certain bounds:
+    # Pick a statistic, only include matches within certain bounds:
     cond_idx = np.where(d2d.to(u.arcsec).value > std)
-    diff_idx=diff_idx[cond_idx]
-    temp_idx=temp_idx[cond_idx]
+    diff_idx = diff_idx[cond_idx]
+    temp_idx = temp_idx[cond_idx]
 
     d2d = d2d[d2d.to(u.arcsec).value > std]
-    diff_sources=diff_sources[diff_idx]
-    temp_sources=temp_sources[temp_idx]
+    diff_sources = diff_sources[diff_idx]
+    temp_sources = temp_sources[temp_idx]
     diff_sources.rename_column('id', 'detect_id')
     temp_sources.rename_column('id', 'detect_id')
 
-    # Make cutouts:
+    ##### OFFSET VISUALIZATION:
+    # Make cutouts for each source in co-added difference image, template image:
     pix_scale = diff_hdr_set[0]['PIXSCAL1'] * u.arcsec / u.pix # pixel scale is same along axis 1/2, same for all headers
     ap_pix = np.round(5*u.arcsec / pix_scale)
 
@@ -381,26 +422,29 @@ def main(dia_dir_path, ccd, band='g'):
     os.mkdir(diffcut_path)
 
     for i in range(len(diff_sources)):
-        diff_cut = Cutout2D(co_add_data, position=(diff_sources[i]['xcentroid'], diff_sources[i]['ycentroid']), 
-                            size=(ap_pix, ap_pix))
-        temp_cut = Cutout2D(temp_data, position=(temp_sources[i]['xcentroid'], temp_sources[i]['ycentroid']),
-                            size=(ap_pix, ap_pix))
         djrad = diff_sources[i]['SkyCoord'].ra.to_string(unit=u.hourangle, sep='', precision=2, pad=True)
-        djdec= diff_sources[i]['SkyCoord'].dec.to_string(sep='', precision=2, alwayssign=True, pad=True)
+        djdec = diff_sources[i]['SkyCoord'].dec.to_string(sep='', precision=2, alwayssign=True, pad=True)
         djname = djrad+djdec
         djnames.append(djname)
+        
         tjrad = temp_sources[i]['SkyCoord'].ra.to_string(unit=u.hourangle, sep='', precision=2, pad=True)
         tjdec= temp_sources[i]['SkyCoord'].dec.to_string(sep='', precision=2, alwayssign=True, pad=True)
         tjname = tjrad+tjdec
         tjnames.append(tjname)
+        
         match_id = i+1
         match_ids.append(match_id)
     
+        diff_cut = Cutout2D(co_add_data, position=(diff_sources[i]['xcentroid'], diff_sources[i]['ycentroid']), 
+                            size=(ap_pix, ap_pix))
+        temp_cut = Cutout2D(temp_data, position=(temp_sources[i]['xcentroid'], temp_sources[i]['ycentroid']),
+                            size=(ap_pix, ap_pix))
         diff_cutouts.append(diff_cut)
         temp_cutouts.append(temp_cut)
   
         ap_rad = np.int(ap_pix.value/2)
-    
+        
+        # Co-added difference image detection:
         dcut_fig, dcut_ax = plt.subplots()
         dcut_ap = CircularAperture(((len(diff_cut.data)-1)/2, (len(diff_cut.data)-1)/2), r=ap_rad)
         normalize1 = ImageNormalize(stretch=SqrtStretch())
@@ -411,8 +455,9 @@ def main(dia_dir_path, ccd, band='g'):
         dcut_ax.set_title(dcut_title)
         dcut_ax.text(x=15, y=1, s='r = '+str(np.int(5/2))+' as', color='lime')
         dcut_ap.plot(color='lime', lw=1.5, alpha=0.8)
-        plt.savefig((diffcut_path + '/' + dcut_title + '.jpg'), facecolor='white', transparent=False)
+        plt.savefig((diffcut_path + '/' + dcut_title + '.png'), facecolor='white', transparent=False)
     
+        # Template image detection:
         tcut_fig, tcut_ax = plt.subplots()
         tcut_ap = CircularAperture(((len(temp_cut.data)-1)/2, (len(temp_cut.data)-1)/2), r=ap_rad)
         normalize2 = ImageNormalize(stretch=SqrtStretch())
@@ -423,7 +468,8 @@ def main(dia_dir_path, ccd, band='g'):
         tcut_ax.set_title(tcut_title)
         tcut_ax.text(x=15, y=1, s='r = '+str(np.int(5/2))+' as', color='lime')
         tcut_ap.plot(color='lime', lw=1.5, alpha=0.8)
-        plt.savefig((tempcut_path + '/' + tcut_title + '.jpg'), facecolor='white', transparent=False)
+        plt.savefig((tempcut_path + '/' + tcut_title + '.png'), facecolor='white', transparent=False)
+        
         plt.close('all')
 
     diff_sources.add_column(match_ids, name='match_id')
@@ -432,77 +478,99 @@ def main(dia_dir_path, ccd, band='g'):
                  'roundness2','npix','sky','peak','flux','mag','SkyCoord']
     diff_sources = diff_sources[new_order]
     temp_sources = temp_sources[new_order]
+    diff_sources.write((ccd_path + '/diff_sources.csv'), format=ascii.csv)
+    temp_sources.write((ccd_path + '/temp_sources.csv'), format=ascii.csv)
     
-    # Light curves:
-    # Load catalog:
-    files = glob.glob(des_cat_path) 
-    df_lc_dia = pd.concat([pd.read_csv(f, sep='\s+', escapechar='#') for f in files])
-    #df_lc_dia = df_lc_dia[np.isfinite(df_lc_dia['flux5'])] # Clean NaN
-    coord_des_dia = SkyCoord(df_lc_dia['ra'], df_lc_dia['dec'], unit=u.deg)
-
-    catmatch_path = ccd_path + "/cat_matches"
-    os.mkdir(catmatch_path)
+    ##### PHOTOMETRY:
+    pdata_path = ccd_path + "/phot_data"
+    os.mkdir(photdata_path)
     lc_path = ccd_path + "/light_curves"
     os.mkdir(lc_path)
 
-    snr3 = []
-    snr4 = []
-    snr5 = []
-    avg3 = []
-    avg4 = []
-    avg5 = []
-    sigavg3 = []
-    sigavg4 = []
-    sigavg5 = []
-    rms3 = []
-    rms4 = []
-    rms5 = []
-    sigrms3 = []
-    sigrms4 = []
-    sigrms5 = []
+    #snr3 = []
+    #snr4 = []
+    #snr5 = []
+    #avg3 = []
+    #avg4 = []
+    #avg5 = []
+    #sigavg3 = []
+    #sigavg4 = []
+    #sigavg5 = []
+    #rms3 = []
+    #rms4 = []
+    #rms5 = []
+    #sigrms3 = []
+    #sigrms4 = []
+    #sigrms5 = []
 
-    # For each source, catalog match & plot light curves:
+    # For each source, extract data from the difference images:
     for i in range(len(diff_sources)):
-        # Using a separation constraint of [x] arcseconds:
-        cat_dist = diff_sources[i]['SkyCoord'].separation(coord_des_dia)
-        sep_cond = cat_dist < 5*u.arcsec
+        # Aperture photometry:
+        radii = [np.round(3*u.arcsec / pix_scale).value/2., np.round(4*u.arcsec / pix_scale).value/2., 
+                 np.round(5*u.arcsec / pix_scale).value/2.]
         
-        # Convert boolean array above to indices:
-        matched_idx = np.where(sep_cond)[0]
+        for j in range(len(abs_diff_data)):
+            diffim_aps = [CircularAperture([diff_sources[i]['xcentroid'], diff_sources[i]['ycentroid']], r=r) 
+                          for r in radii]
+            
+            if j==0:
+                phot_table = aperture_photometry(abs_diff_data[j], diffim_aps, error=dw_data_set[j])
+                for col in phot_table.colnames:
+                    phot_table[col].info.format = '%.8g'
+                phot_table.rename_column('aperture_sum_0', 'ap_sum_3')
+                phot_table.rename_column('aperture_sum_err_0', 'ap_sum_3_err')
+                phot_table.rename_column('aperture_sum_1', 'ap_sum_4')
+                phot_table.rename_column('aperture_sum_err_1', 'ap_sum_4_err')
+                phot_table.rename_column('aperture_sum_2', 'ap_sum_5')
+                phot_table.rename_column('aperture_sum_err_2', 'ap_sum_5_err')
+                phot_table.add_column(diff_hdr_set[j]['MJD-OBS'], name='MJD')
+                phot_table = flag_check(phot_table)
+                phot_table['diff_id'] = str(ok_diff[j])
+                pt_order = ['MJD', 'xcenter', 'ycenter', 'ap_sum_3', 'ap_sum_3_err', 
+                            'ap_sum_4', 'ap_sum_4_err', 'ap_sum_5', 'ap_sum_5_err', 'Flag','diff_id']
+                phot_table = phot_table[pt_order]
+            
+            else:
+                ptab2 = aperture_photometry(abs_diff_data[j], diffim_aps, error=dw_data_set[j])
+                for col in ptab2.colnames:
+                    ptab2[col].info.format = '%.8g'
+                ptab2.rename_column('aperture_sum_0', 'ap_sum_3')
+                ptab2.rename_column('aperture_sum_err_0', 'ap_sum_3_err')
+                ptab2.rename_column('aperture_sum_1', 'ap_sum_4')
+                ptab2.rename_column('aperture_sum_err_1', 'ap_sum_4_err')
+                ptab2.rename_column('aperture_sum_2', 'ap_sum_5')
+                ptab2.rename_column('aperture_sum_err_2', 'ap_sum_5_err')
+                ptab2.add_column(diff_hdr_set[j]['MJD-OBS'], name='MJD')
+                ptab2 = flag_check(ptab2)
+                ptab2['diff_id'] = str(ok_diff[j])
+                ptab2 = ptab2[pt_order]
+                phot_table = vstack([phot_table, ptab2])
         
-        # Create a dataframe only containining data from matches:
-        matched_df = df_lc_dia.iloc[matched_idx, :]
-        matched_df = matched_df.sort_values(by=['mjd_obs']) # Sort by MJD
-        df_name = djnames[i] + "_catmatch_matchid_" + str(match_ids[i])
-        matched_df.to_pickle(catmatch_path + '/' + df_name + '.pkl')
+        #var_stats(flux, flux_err, arr_snr, arr_avg, arr_sigavg, arr_rms, arr_sigrms)
+        ptab_name = djnames[i] + "_photdata_matchid_" + str(match_ids[i])
+        phot_table.write((pdata_path + '/' + ptab_name + '.csv'), format=ascii.csv)
         
-        fl_cols = ['flux3', 'flux4', 'flux5']
-        flerr_cols = ['fluxerr3', 'fluxerr4', 'fluxerr5']
-
-        # Create arrays of mags./mag. errs. for all aperture diameters:
-        mag_set = []
-        magerr_set = []
-        for j in range(len(fl_cols)):
-            mag_col, magerr_col = lc_data(matched_df, fl_cols[j], flerr_cols[j])
-            mag_set.append(mag_col)
-            magerr_set.append(magerr_col)
-
-        var_stats(np.array(matched_df['flux3']), np.array(matched_df['fluxerr3']), snr3, avg3, sigavg3, rms3, sigrms3)
-        var_stats(np.array(matched_df['flux4']), np.array(matched_df['fluxerr4']), snr4, avg4, sigavg4, rms4, sigrms4)
-        var_stats(np.array(matched_df['flux5']), np.array(matched_df['fluxerr5']), snr5, avg5, sigavg5, rms5, sigrms5)
-    
+        # Extract photometry data for non-flagged (norm_...) & flagged (flag_...) difference images:
+        pix_cts = [phot_table['ap_sum_3'], phot_table['ap_sum_4'], phot_table['ap_sum_5']]
+        pix_cts_err = [phot_table['ap_sum_3_err'], phot_table['ap_sum_4_err'], phot_table['ap_sum_5_err']]
+       
+        norm_idx, norm_mjd, norm_cts, norm_cts_err = flag_data(phot_table, False) 
+        flag_idx, flag_mjd, flag_cts, flag_cts_err = flag_data(phot_table, True)
+        
+        # Plot light curves for each aperture:
         fig2, axes = plt.subplots(nrows=3, ncols=1, sharex=True)
-        labs = ['3', '4', '5']
-        colors = ['blue', 'darkorange', 'green']
+        leg_labs = ['3', '4', '5']
         lc_name = djnames[i] + "_lc_matchid_" + str(match_ids[i])
-    
-        # Plot light curves for each aperture diameter:
-        for k in range(len(mag_set)):
-            axes[k].errorbar(matched_df['mjd_obs'], mag_set[k], yerr=magerr_set[k], ecolor='black', mfc=colors[k], 
-                            mec='black', marker='o', ls='')
-            axes[k].legend(loc='best', labels=labs[k], frameon=True, title="Aperture ('')")
-            axes[k].invert_yaxis()
-            axes[k].set_ylabel('Magnitude ($g$)')
+
+        for k in range(len(pix_cts)):
+            axes[k].errorbar(norm_mjd, norm_cts[k], yerr=norm_cts_err[k], ecolor='black', mfc='black', 
+                            mec='black', marker='o', ls='', label='No Flag')
+            if len(flag_idx > 0):
+                axes[k].errorbar(flag_mjd, flag_cts[k], yerr=flag_cts_err[k], ecolor='darkgray', mfc='darkgray', 
+                            mec='darkgray', marker='o', ls='', label='Flag')
+            axes[k].legend(loc='best', frameon=True, title=leg_labs[k] + "'' Aperture")
+            axes[k].set_ylabel(r'Brightness (e$^-$/s)')
+            axes[k].set_yscale('log')
             if (k==0):
                 axes[k].set_title('Source ' + djnames[i] + ' Light Curve')
             if (k==2):
@@ -510,18 +578,9 @@ def main(dia_dir_path, ccd, band='g'):
     
         plt.tight_layout()
         plt.subplots_adjust(hspace=0.1)
-        plt.savefig((lc_path + '/' + lc_name + '.jpg'), facecolor='white', transparent=False)
-        plt.close('all')
-    
-    diff_sources.add_columns([snr3, avg3, sigavg3, rms3, sigrms3], names=['snr3', 'avg3', 'sigavg3', 'rms3', 'sigrms3'])
-    diff_sources.add_columns([snr4, avg4, sigavg4, rms4, sigrms4], names=['snr4', 'avg4', 'sigavg4', 'rms4', 'sigrms4'])
-    diff_sources.add_columns([snr5, avg5, sigavg5, rms5, sigrms5], names=['snr5', 'avg5', 'sigavg5', 'rms5', 'sigrms5'])
-        
-    temp_df = temp_sources.to_pandas()
-    diff_df = diff_sources.to_pandas()
-    diff_df.to_pickle((ccd_path + '/diff_sources.pkl'))
-    temp_df.to_pickle((ccd_path + '/temp_sources.pkl'))
+        plt.savefig((lc_path + '/' + lc_name + '.png'), facecolor='white', transparent=False)
     return
 
+#################################################################################################
 # Main function example usage:
-# main('C:/Users/Gaby/Documents/DES/SP_2021/PHL_293B_validation/TARGET, 34)
+# main('C:/Users/Gaby/Documents/DES/SP_2021/PHL_293B_validation/TARGET', 34)
