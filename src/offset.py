@@ -1,6 +1,6 @@
-# For main function input, go to line 586
+# Go to line 666 for main function input
 
-# Last modified 5/19/21
+# Last modified 6/3/2021
 import os
 import glob
 import math
@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+
 import astropy.units as u
 from astropy.io import fits
 from astropy.wcs import WCS
@@ -17,8 +18,20 @@ from astropy.nddata.utils import Cutout2D
 from astropy.table import vstack, Table
 from astropy.visualization import astropy_mpl_style, SqrtStretch
 from astropy.visualization.mpl_normalize import ImageNormalize
+from astropy.modeling.models import Gaussian2D
+from astropy.convolution import Gaussian2DKernel
+from astropy.stats import gaussian_fwhm_to_sigma
+
+from photutils.segmentation import detect_threshold, detect_sources, deblend_sources, SourceCatalog
 from photutils import DAOStarFinder, CircularAperture, aperture_photometry
+from photutils.isophote import EllipseGeometry, Ellipse, build_ellipse_model
+from photutils.aperture import EllipticalAperture
 from scipy.stats import norm, halfnorm
+
+import warnings
+
+#ignore by message
+warnings.filterwarnings("ignore", message="The kernel is not normalized")
 
 sns.set_theme(style='whitegrid')
 plt.style.use('seaborn-whitegrid')
@@ -365,43 +378,113 @@ def main(dia_dir_path, ccd, band='g'):
     temp_skycoord = SkyCoord.from_pixel(temp_sources['xcentroid'], temp_sources['ycentroid'], w_temp)
     temp_sources.add_column(temp_skycoord, name='SkyCoord')
 
-    # Calculate pair-wise separation:
-    diff_idx, temp_idx, d2d, d3d = temp_sources['SkyCoord'].search_around_sky(diff_sources['SkyCoord'], 5*u.arcsec)
-
-    # Visualize distribution of offsets:
+    # Get size of each extended source in template image:
+    temp_gal_eqrad = []
+    for i in range(len(temp_sources)):
+        temp_gal_cut = Cutout2D(temp_data, position=(temp_sources[i]['xcentroid'], temp_sources[i]['ycentroid']),
+                                size=(ap_pix*2, ap_pix*2))
+        
+        threshold = detect_threshold(temp_gal_cut.data, nsigma=3.)
+        sigma = 3.0 * gaussian_fwhm_to_sigma
+        kernel = Gaussian2DKernel(sigma, x_size=3, y_size=3)
+        segm = detect_sources(temp_gal_cut.data, threshold, npixels=10, filter_kernel=kernel)
+        #segm_deblend = deblend_sources(temp_gal_cut.data, segm, npixels=5, filter_kernel=kernel, nlevels=32, 
+        #                               contrast=0.01)
+    
+        normgal = ImageNormalize(stretch=SqrtStretch())
+        tempgal_fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12.5))
+        ax1.imshow(temp_gal_cut.data, origin='lower', cmap='gray', norm=normgal)
+        ax1.set_title('Template Image Data')
+        #cmap = segm_deblend.make_cmap(seed=123)
+        cmap = segm.make_cmap(seed=123)
+        #ax2.imshow(segm_deblend, origin='lower', cmap=cmap, interpolation='nearest')
+        ax2.imshow(segm, origin='lower', cmap=cmap, interpolation='nearest')
+        ax2.set_title('Segmentation Image')
+        
+        plt.close('all')
+        
+        #temp_gal_cat = SourceCatalog(temp_gal_cut.data, segm_deblend)
+        temp_gal_cat = SourceCatalog(temp_gal_cut.data, segm)
+        temp_gal_eqrad.append(np.round((temp_gal_cat.equivalent_radius).value[0], 3)) # eq radii in pixels
+    
+    temp_gal_eqrad = temp_gal_eqrad*u.pix * pix_scale # convert to eq radii in arcsec
+    
+    # Visualize distribution of equivalent radii: 
     fig1, (ax1, ax2, ax3) = plt.subplots(3,1, figsize = (10, 15), sharex=True, tight_layout=True)
     
-    sns.histplot(data=d2d.to(u.arcsec).value, x=d2d.to(u.arcsec).value, ax=ax1, stat='count', kde=True, color='green')
+    sns.histplot(data=temp_gal_eqrad / u.arcsec, x=temp_gal_eqrad / u.arcsec, ax=ax1, stat='count', kde=True, color='green')
+    ax1.set(xlabel="Equivalent Radius ('')", ylabel="Counts", title="Raw data + KDE");
+    
+    sns.histplot(data=temp_gal_eqrad / u.arcsec, x=temp_gal_eqrad / u.arcsec, ax=ax2, stat='probability', kde=True, color='blue')
+    ax2.set(xlabel="Equivalent Radius ('')", ylabel="Probability", title="Normed data + KDE");
+
+    X = np.linspace(0, max(temp_gal_eqrad).value, 100)
+    mu, std = norm.fit(temp_gal_eqrad / u.arcsec)
+    p = norm.pdf(X, mu, std)
+    
+    ax3.plot(X, p, 'k', linewidth=2, label='Gaussian')
+    sns.histplot(data=temp_gal_eqrad / u.arcsec, x=temp_gal_eqrad / u.arcsec, ax=ax3, stat='density')
+    ax3.set(xlabel="Equivalent Radius ('')", ylabel="Density", title="Template Galaxies ER Distribution")
+    ax3.legend(loc='best')
+    plt.savefig((ccd_path + '/eqrad_dist.jpg'), facecolor='white', transparent=False)
+
+    gauss = "Equivalent radius gaussian results: mu = %.2f,  std = %.2f" % (mu, std)
+    print(gauss)
+    
+    temp_idcs = []
+    diff_idcs = []
+    dist = []
+    # Calculate pair-wise separation:
+    for i in range(len(temp_sources)):
+        d2d = temp_sources[i]['SkyCoord'].separation(diff_sources['SkyCoord'])
+        sep_bool = d2d.to(u.arcsec) < temp_gal_eqrad[i]
+        diff_idx = np.where(sep_bool)[0]
+        diff_dist = d2d[diff_idx].to(u.arcsec)
+        
+        if len(diff_idx) > 0:
+            for j in range(len(diff_idx)):
+                temp_idcs.append(i)
+                diff_idcs.append(diff_idx[j])
+                dist.append(diff_dist[j].value)
+    
+    temp_idcs = np.array(temp_idcs).astype(np.int)
+    diff_idcs = np.array(diff_idcs).astype(np.int)
+    dist = np.array(dist).astype(np.int)
+    
+    # Visualize distribution of offsets:
+    fig2, (ax1, ax2, ax3) = plt.subplots(3,1, figsize = (10, 15), sharex=True, tight_layout=True)
+    
+    sns.histplot(data=dist, x=dist,   ax=ax1, stat='count', kde=True, color='green')
     ax1.set(xlabel="Separation ('')", ylabel="Counts", title="Raw data + KDE");
     
-    sns.histplot(data=d2d.to(u.arcsec).value, x=d2d.to(u.arcsec).value, ax=ax2, stat='probability', kde=True, color='blue')
+    sns.histplot(data=dist, x=dist,   ax=ax2, stat='probability', kde=True, color='blue')
     ax2.set(xlabel="Separation ('')", ylabel="Probability", title="Normed data + KDE");
 
-    X = np.linspace(0, 2.5, 100)
-    mu, std = norm.fit(d2d.to(u.arcsec).value)
-    mean, var, skew, kurt = halfnorm.stats(moments='mvsk')
-    p = norm.pdf(X, mu, std)
-    hn = halfnorm.pdf(X)
+    X2 = np.linspace(0, max(dist), 100)
+    mu2, std2 = norm.fit(dist)
+    mean2, var2, skew2, kurt2 = halfnorm.stats(moments='mvsk')
+    p2 = norm.pdf(X2, mu2, std2)
+    hn2 = halfnorm.pdf(X2)
 
-    ax3.plot(X, p, 'k', linewidth=2, label='Gaussian')
-    ax3.plot(X, hn, 'r-', linewidth=2, label='Half-norm')
-    sns.histplot(data=d2d.to(u.arcsec).value, x=d2d.to(u.arcsec).value, ax=ax3, stat='density')
+    ax3.plot(X2, p2, 'k', linewidth=2, label='Gaussian')
+    ax3.plot(X2, hn2, 'r-', linewidth=2, label='Half-norm')
+    sns.histplot(data=dist, x=dist,   ax=ax3, stat='density')
     ax3.set(xlabel="Separation ('')", ylabel="Density", title="Offset Distribution")
     ax3.legend(loc='best')
-    plt.savefig((ccd_path + '/offset_dist.png'), facecolor='white', transparent=False)
+    plt.savefig((ccd_path + '/offset_dist.jpg'), facecolor='white', transparent=False)
 
-    gauss = "Gaussian results: mu = %.2f,  std = %.2f" % (mu, std)
-    hnorm = "Half-norm results: mu = %.2f, std=%.2f" % (halfnorm.mean(), halfnorm.std())
-    print(gauss, hnorm)
+    gauss2 = "Offset gaussian results: mu = %.2f,  std = %.2f" % (mu2, std2)
+    hnorm2 = "Offset half-norm results: mu = %.2f, std=%.2f" % (halfnorm.mean(), halfnorm.std())
+    print(gauss2, hnorm2)
     
     # Pick a statistic, only include matches within certain bounds:
-    cond_idx = np.where(d2d.to(u.arcsec).value > std)
-    diff_idx = diff_idx[cond_idx]
-    temp_idx = temp_idx[cond_idx]
+    cond_idx = np.where(dist > std2)
+    diff_idcs = diff_idcs[cond_idx]
+    temp_idcs = temp_idcs[cond_idx]
 
-    d2d = d2d[d2d.to(u.arcsec).value > std]
-    diff_sources = diff_sources[diff_idx]
-    temp_sources = temp_sources[temp_idx]
+    dist = dist[dist > std]
+    diff_sources = diff_sources[diff_idcs]
+    temp_sources = temp_sources[temp_idcs]
     diff_sources.rename_column('id', 'detect_id')
     temp_sources.rename_column('id', 'detect_id')
 
@@ -558,7 +641,7 @@ def main(dia_dir_path, ccd, band='g'):
         flag_idx, flag_mjd, flag_cts, flag_cts_err = flag_data(phot_table, True)
         
         # Plot light curves for each aperture:
-        fig2, axes = plt.subplots(nrows=3, ncols=1, sharex=True)
+        fig3, axes = plt.subplots(nrows=3, ncols=1, sharex=True)
         leg_labs = ['3', '4', '5']
         lc_name = djnames[i] + "_lc_matchid_" + str(match_ids[i])
 
