@@ -7,7 +7,7 @@ Produce difference imaging light curves for the dark energy survey in an automat
 
 ### Usage:
 
-Needs to be run using the EUPS environment after installing packages in the `source.me` file. The input is either DES field name (e.g. SN-C3) or, for the wide-area field, an integer value corresponding to the template pointing.
+Needs to be run using the [EUPS](https://opensource.ncsa.illinois.edu/confluence/display/DESDM/The+Impatient%27s+Guide+to+DESDM+EUPS+installation) environment after installing packages in the `source.me` file. Note this assumes the paths to the setup and config files are `${HOME}/eups/desdm_eups_setup.sh` and `${HOME}/.desservices.ini`.
 
 
 #### Supernova/COSMOS Fields
@@ -21,7 +21,7 @@ The `-c` flag can be used to specify the CCD. The `-n` flag specifies the number
 
 #### Wide-Area (Main Survey)
 
-For the wide-area survey, specify the pointing number (value from 0-2038; see `y6point.csv` file). Each pointing will be split into regions (or a CCD if specified with the `-c` flag) using a template constructed from Y6 pointings:
+For the wide-area survey, specify the pointing number (value from 0-2038; see `y3point.csv` file). Each pointing will be split into regions (or a CCD if specified with the `-c` flag) using a template constructed from Y3 pointings:
 
 `./desdia --survey 1 -n 30 -w /data/des80.a/data/${USER}/ --nowarn`
 
