@@ -1,0 +1,3 @@
+./desdia "$@"
+source ~/sourceconda
+#python ./src/offset.py "$@"
