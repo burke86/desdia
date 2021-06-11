@@ -21,7 +21,7 @@ The `-c` flag can be used to specify the CCD. The `-n` flag specifies the number
 
 #### Wide-Area (Main Survey)
 
-For the wide-area survey, specify the pointing number (value from 0-2038; see `y6point.csv` file). Each pointing will be split into regions (or a CCD if specified with the `-c` flag) using a template constructed from Y6 pointings:
+For the wide-area survey, specify the pointing number (value from 0-2038; see `y3point.csv` file). Each pointing will be split into regions (or a CCD if specified with the `-c` flag) using a template constructed from Y6 pointings:
 
 `./desdia --survey 1 -n 30 -w /data/des80.a/data/${USER}/ --nowarn`
 
