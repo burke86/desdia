@@ -75,11 +75,11 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
         # Here image_list is just the template image info
         des_pipeline.run_ccd_survey(image_list,query_sci,num_threads,template_season,fermigrid,band,coadd_diff=False)
         # Compute offsets for each CCD
-        if offset:
-            import offset
-            for ccd in image_list['ccd']:
-                print(tile_dir)
-                offset.main(tile_dir, ccd)
+        #if offset:
+        #    import offset
+        #    for ccd in image_list['ccd']:
+        #        print(tile_dir)
+        #        offset.main(tile_dir, ccd)
     # Save data to out_dir
     print('Compressing and transfering files.')
     # Compress and transfer files
