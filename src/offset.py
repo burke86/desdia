@@ -1,13 +1,15 @@
-# For main function input, go to line 586
+n function input, see line 719
 
-# Last modified 5/19/21
+# Last modified 6/22/2021
 import os
 import glob
 import math
-from math import nan
+import time
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import astropy.units as u
 from astropy.io import fits
@@ -17,10 +19,18 @@ from astropy.nddata.utils import Cutout2D
 from astropy.table import vstack, Table
 from astropy.visualization import astropy_mpl_style, SqrtStretch
 from astropy.visualization.mpl_normalize import ImageNormalize
+from astropy.modeling.models import Gaussian2D
+from astropy.convolution import Gaussian2DKernel
+from astropy.stats import gaussian_fwhm_to_sigma
+from photutils.segmentation import detect_threshold, detect_sources, deblend_sources, SourceCatalog
 from photutils import DAOStarFinder, CircularAperture, aperture_photometry
 from scipy.stats import norm, halfnorm
+import warnings
+from humanize import naturalsize
 
-sns.set_theme(style='whitegrid')
+#ignore by message
+warnings.filterwarnings("ignore", message="The kernel is not normalized")
+
 plt.style.use('seaborn-whitegrid')
 
 #################################################################################################
@@ -28,7 +38,7 @@ plt.style.use('seaborn-whitegrid')
 # Check for variability: 
 def myvarlc(fluxin,sigin):
     n = np.shape(fluxin)[0]
-    #convergence threshold
+    #convergence threshold    tiny = 2.e-5
     tiny = 2.e-5
     #lower limit for extra variance
     #vmin = tiny * v0
@@ -178,6 +188,14 @@ def myvarlc(fluxin,sigin):
     print('** AVGRMSX FAILED TO CONVERGE :(((((')
     return(good, avg, rms, sigavg, sigrms)
 
+# Check for empty FITS files from desdia code: 
+def check_files(filenames_arr, empty_arr, ok_arr):
+    for i in range(len(filenames_arr)):
+        if os.stat(filenames_arr[i]).st_size == 0:
+            empty_arr.append(filenames_arr[i])
+        else:
+            ok_arr.append(filenames_arr[i])
+
 # Given array of fluxes and errors (floats), transform to array of magnitudes (floats):
 def calc_mag(flux, flux_err):
     mag = 30 -2.5*np.log10(flux)
@@ -221,31 +239,36 @@ def var_stats(flux, flux_err, arr_snr, arr_avg, arr_sigavg, arr_rms, arr_sigrms)
 
 # Main function:
 def main(dia_dir_path, ccd, band='g'):
-    des_cat_path = os.path.joing(dia_dir_path, 'template_%d' % ccd)
+    start_time = time.time()
+    print('---Beginning offset code...---')
+    init_size = os.stat(dia_dir_path).st_size
     
     ##### READ FITS FILES:
     # Difference images:
-    diff_path = dia_dir_path + '/*_%s_c%d_*_*proj_diff.fits' % (band, ccd)
+    # diff_path = dia_dir_path + '/*_%s_c%_*_*proj_diff.fits' % (band, ccd)
+    diff_path = dia_dir_path + '/*proj_diff.fits'
     diff_files = glob.glob(diff_path)
     empty_files = []
     ok_diff = []
-    
+   
     # Difference image weights/error:
     dw_path = dia_dir_path + '/*proj_diff.weight.fits'
     dw_files = glob.glob(dw_path)
     empty_dw = []
     ok_dw = []
 
-    print(len(dw_files), len(diff_files))
+    print('\t # difference image files:', len(diff_files))        
+    print('\t # difference image weights files:', len(dw_files), '\n')
     
-    # Filter for empty FITS files
-    for i in range(len(diff_files)): 
-        if os.stat(diff_files[i]).st_size == 0: 
-            empty_files.append(diff_files[i])
-            empty_dw.append(dw_files[i])
-        else:
-            ok_diff.append(diff_files[i])
-            ok_dw.append(dw_files[i])
+    # Filter for empty diff img FITS files:
+    print('\t Checking for empty difference image files...')
+    check_files(diff_files, empty_diff, ok_diff)
+    print('\t \t # difference image files:', len(ok_diff), '(OK),', len(empty_diff), '(empty) \n')
+    
+    # Filter for empty diff img weight FITS files:     
+    print('\t Checking for empty difference image weight files...')
+    check_files(dw_files, empty_dw, ok_dw)
+    print('\t \t # difference image weights files:', len(ok_dw), '(OK),', len(empty_dw), '(empty) \n')
     
     # Template image:
     temp_files= dia_dir_path + '/template_c%d.fits' % ccd
@@ -261,6 +284,8 @@ def main(dia_dir_path, ccd, band='g'):
     dw_data_set = []
     dw_hdr_set = []
     
+    print('\t Extracting data from FITS files...')
+
     for i in range(len(ok_diff)):
         diff_data, diff_hdr = fits.getdata(ok_diff[i], header=True)
         dw_data, dw_hdr = fits.getdata(ok_dw[i], header=True)
@@ -279,6 +304,7 @@ def main(dia_dir_path, ccd, band='g'):
     # Co-added difference image:
     abs_diff_data = np.abs(diff_data_set)
     co_add_data = np.zeros(np.shape(abs_diff_data[0]), dtype=float)
+    print('\t Co-adding difference images... \n')
     for i in range(len(abs_diff_data)):
         co_add_data = co_add_data + abs_diff_data[i]
     
@@ -296,8 +322,7 @@ def main(dia_dir_path, ccd, band='g'):
     # Template image:
     temp_fig, temp_ax = plt.subplots(figsize=(10,10))
     plt.style.use(astropy_mpl_style)
-    temp_im = temp_ax.imshow(temp_data, origin='lower', cmap='gray', 
-                             vmin=0, vmax=5000)
+    temp_im = temp_ax.imshow(temp_data, origin='lower', cmap='gray', vmin=0, vmax=5000)
     temp_fig.colorbar(temp_im, ax=temp_ax)
     temp_ax.set_title('Template image (CCD ' + str(temp_hdr['CCDNUM']) + ')')
     temp_ax.set_xlabel('Pixels')
@@ -315,16 +340,16 @@ def main(dia_dir_path, ccd, band='g'):
 
     daofind = DAOStarFinder(fwhm=3.0, threshold=3.*c_std) # When I used a detection threshold of 5, nothing showed up!
     
+    print('\t Detecting sources in co-added difference image...')
     diff_sources = daofind(co_add_data - c_med)
     for col in diff_sources.colnames:
         diff_sources[col].info.format = '%.8g'  # for consistent table output
-        # print(diff_sources)
 
     # Search in template image:
+    print('\t Detecting sources in template image... \n')
     temp_sources = daofind(temp_data - c_med)
     for col in temp_sources.colnames:
         temp_sources[col].info.format = '%.8g'  # for consistent table output
-        # print(temp_sources)
 
     # Co-added detections:
     pix_scale = diff_hdr_set[0]['PIXSCAL1'] * u.arcsec / u.pix # pixel scale is same along axis 1&2, same for all headers
@@ -365,46 +390,118 @@ def main(dia_dir_path, ccd, band='g'):
     temp_skycoord = SkyCoord.from_pixel(temp_sources['xcentroid'], temp_sources['ycentroid'], w_temp)
     temp_sources.add_column(temp_skycoord, name='SkyCoord')
 
-    # Calculate pair-wise separation:
-    diff_idx, temp_idx, d2d, d3d = temp_sources['SkyCoord'].search_around_sky(diff_sources['SkyCoord'], 5*u.arcsec)
-
-    # Visualize distribution of offsets:
+    # Get size of each extended source in template image:
+    temp_gal_eqrad = []
+    for i in range(len(temp_sources)):
+        temp_gal_cut = Cutout2D(temp_data, position=(temp_sources[i]['xcentroid'], temp_sources[i]['ycentroid']),
+                                size=(ap_pix*2, ap_pix*2))
+        
+        threshold = detect_threshold(temp_gal_cut.data, nsigma=3.)
+        sigma = 3.0 * gaussian_fwhm_to_sigma
+        kernel = Gaussian2DKernel(sigma, x_size=3, y_size=3)
+        segm = detect_sources(temp_gal_cut.data, threshold, npixels=10, filter_kernel=kernel)
+        #segm_deblend = deblend_sources(temp_gal_cut.data, segm, npixels=5, filter_kernel=kernel, nlevels=32, 
+        #                               contrast=0.01)
+    
+        normgal = ImageNormalize(stretch=SqrtStretch())
+        tempgal_fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12.5))
+        ax1.imshow(temp_gal_cut.data, origin='lower', cmap='gray', norm=normgal)
+        ax1.set_title('Template Image Data')
+        #cmap = segm_deblend.make_cmap(seed=123)
+        cmap = segm.make_cmap(seed=123)
+        #ax2.imshow(segm_deblend, origin='lower', cmap=cmap, interpolation='nearest')
+        ax2.imshow(segm, origin='lower', cmap=cmap, interpolation='nearest')
+        ax2.set_title('Segmentation Image')
+        
+        plt.close('all')
+        
+        #temp_gal_cat = SourceCatalog(temp_gal_cut.data, segm_deblend)
+        temp_gal_cat = SourceCatalog(temp_gal_cut.data, segm)
+        temp_gal_eqrad.append(np.round((temp_gal_cat.equivalent_radius).value[0], 3)) # eq radii in pixels
+    
+    temp_gal_eqrad = temp_gal_eqrad*u.pix * pix_scale # convert to eq radii in arcsec
+    
+    # Visualize distribution of equivalent radii: 
     fig1, (ax1, ax2, ax3) = plt.subplots(3,1, figsize = (10, 15), sharex=True, tight_layout=True)
     
-    sns.histplot(data=d2d.to(u.arcsec).value, x=d2d.to(u.arcsec).value, ax=ax1, stat='count', kde=True, color='green')
+    sns.histplot(data=temp_gal_eqrad / u.arcsec, x=temp_gal_eqrad / u.arcsec, ax=ax1, stat='count', kde=True, color='green')
+    ax1.set(xlabel="Equivalent Radius ('')", ylabel="Counts", title="Raw data + KDE");
+    
+    sns.histplot(data=temp_gal_eqrad / u.arcsec, x=temp_gal_eqrad / u.arcsec, ax=ax2, stat='probability', kde=True, color='blue')
+    ax2.set(xlabel="Equivalent Radius ('')", ylabel="Probability", title="Normed data + KDE");
+
+    X = np.linspace(0, max(temp_gal_eqrad).value, 100)
+    mu, std = norm.fit(temp_gal_eqrad / u.arcsec)
+    p = norm.pdf(X, mu, std)
+    
+    ax3.plot(X, p, 'k', linewidth=2, label='Gaussian')
+    sns.histplot(data=temp_gal_eqrad / u.arcsec, x=temp_gal_eqrad / u.arcsec, ax=ax3, stat='density')
+    ax3.set(xlabel="Equivalent Radius ('')", ylabel="Density", title="Template Galaxies ER Distribution")
+    ax3.legend(loc='best')
+    plt.savefig((ccd_path + '/eqrad_dist.jpg'), facecolor='white', transparent=False)
+
+    gauss = "\t Gaussian fit (eq. radius distribution): mu = %.2f '',  std = %.2f '' " % (mu, std)
+    print(gauss)
+    
+    temp_idcs = []
+    diff_idcs = []
+    dist = []
+    # Calculate pair-wise separation:
+    for i in range(len(temp_sources)):
+        d2d = temp_sources[i]['SkyCoord'].separation(diff_sources['SkyCoord'])
+        sep_bool = d2d.to(u.arcsec) < temp_gal_eqrad[i]
+        diff_idx = np.where(sep_bool)[0]
+        diff_dist = d2d[diff_idx].to(u.arcsec)
+        
+        if len(diff_idx) > 0:
+            for j in range(len(diff_idx)):
+                temp_idcs.append(i)
+                diff_idcs.append(diff_idx[j])
+                dist.append(diff_dist[j].value)
+    
+    temp_idcs = np.array(temp_idcs).astype(np.int)
+    diff_idcs = np.array(diff_idcs).astype(np.int)
+    dist = np.array(dist).astype(np.int)
+    
+    # Visualize distribution of offsets:
+    fig2, (ax1, ax2, ax3) = plt.subplots(3,1, figsize = (10, 15), sharex=True, tight_layout=True)
+    
+    sns.histplot(data=dist, x=dist,   ax=ax1, stat='count', kde=True, color='green')
     ax1.set(xlabel="Separation ('')", ylabel="Counts", title="Raw data + KDE");
     
-    sns.histplot(data=d2d.to(u.arcsec).value, x=d2d.to(u.arcsec).value, ax=ax2, stat='probability', kde=True, color='blue')
+    sns.histplot(data=dist, x=dist,   ax=ax2, stat='probability', kde=True, color='blue')
     ax2.set(xlabel="Separation ('')", ylabel="Probability", title="Normed data + KDE");
 
-    X = np.linspace(0, 2.5, 100)
-    mu, std = norm.fit(d2d.to(u.arcsec).value)
-    mean, var, skew, kurt = halfnorm.stats(moments='mvsk')
-    p = norm.pdf(X, mu, std)
-    hn = halfnorm.pdf(X)
+    X2 = np.linspace(0, max(dist), 100)
+    mu2, std2 = norm.fit(dist)
+    mean2, var2, skew2, kurt2 = halfnorm.stats(moments='mvsk')
+    p2 = norm.pdf(X2, mu2, std2)
+    hn2 = halfnorm.pdf(X2)
 
-    ax3.plot(X, p, 'k', linewidth=2, label='Gaussian')
-    ax3.plot(X, hn, 'r-', linewidth=2, label='Half-norm')
-    sns.histplot(data=d2d.to(u.arcsec).value, x=d2d.to(u.arcsec).value, ax=ax3, stat='density')
+    ax3.plot(X2, p2, 'k', linewidth=2, label='Gaussian')
+    ax3.plot(X2, hn2, 'r-', linewidth=2, label='Half-norm')
+    sns.histplot(data=dist, x=dist,   ax=ax3, stat='density')
     ax3.set(xlabel="Separation ('')", ylabel="Density", title="Offset Distribution")
     ax3.legend(loc='best')
-    plt.savefig((ccd_path + '/offset_dist.png'), facecolor='white', transparent=False)
+    plt.savefig((ccd_path + '/offset_dist.jpg'), facecolor='white', transparent=False)
 
-    gauss = "Gaussian results: mu = %.2f,  std = %.2f" % (mu, std)
-    hnorm = "Half-norm results: mu = %.2f, std=%.2f" % (halfnorm.mean(), halfnorm.std())
-    print(gauss, hnorm)
+    gauss2 = "\t Gaussian fit (offset distribution): mu = %.2f '',  std = %.2f '' " % (mu2, std2)
+    hnorm2 = "\t Half-norm fit (offset distribution): mu = %.2f '', std=%.2f '' \n" % (halfnorm.mean(), halfnorm.std())
+    print(gauss2)
+    print(hnorm2)
     
     # Pick a statistic, only include matches within certain bounds:
-    cond_idx = np.where(d2d.to(u.arcsec).value > std)
-    diff_idx = diff_idx[cond_idx]
-    temp_idx = temp_idx[cond_idx]
+    cond_idx = np.where(dist > std2)
+    diff_idcs = diff_idcs[cond_idx]
+    temp_idcs = temp_idcs[cond_idx]
 
-    d2d = d2d[d2d.to(u.arcsec).value > std]
-    diff_sources = diff_sources[diff_idx]
-    temp_sources = temp_sources[temp_idx]
+    dist = dist[dist > std]
+    diff_sources = diff_sources[diff_idcs]
+    temp_sources = temp_sources[temp_idcs]
     diff_sources.rename_column('id', 'detect_id')
     temp_sources.rename_column('id', 'detect_id')
-
+    print('\t Found', len(diff_sources), 'pairs of candidate offset sources!')
+ 
     ##### OFFSET VISUALIZATION:
     # Make cutouts for each source in co-added difference image, template image:
     pix_scale = diff_hdr_set[0]['PIXSCAL1'] * u.arcsec / u.pix # pixel scale is same along axis 1/2, same for all headers
@@ -421,6 +518,7 @@ def main(dia_dir_path, ccd, band='g'):
     os.mkdir(tempcut_path)
     os.mkdir(diffcut_path)
 
+    print('\t Making and saving cutouts... \n')
     for i in range(len(diff_sources)):
         djrad = diff_sources[i]['SkyCoord'].ra.to_string(unit=u.hourangle, sep='', precision=2, pad=True)
         djdec = diff_sources[i]['SkyCoord'].dec.to_string(sep='', precision=2, alwayssign=True, pad=True)
@@ -504,6 +602,8 @@ def main(dia_dir_path, ccd, band='g'):
     #sigrms5 = []
 
     # For each source, extract data from the difference images:
+    print('\t Performing aperture photometry...')
+    print('\t Making and saving light curves... \n')
     for i in range(len(diff_sources)):
         # Aperture photometry:
         radii = [np.round(3*u.arcsec / pix_scale).value/2., np.round(4*u.arcsec / pix_scale).value/2., 
@@ -579,8 +679,41 @@ def main(dia_dir_path, ccd, band='g'):
         plt.tight_layout()
         plt.subplots_adjust(hspace=0.1)
         plt.savefig((lc_path + '/' + lc_name + '.png'), facecolor='white', transparent=False)
+    
+    final_size = os.stat(dia_dir_path).st_size
+    
+    print('\t DATA PRODUCT SUMMARY:')
+    print('\t ---------------------')
+    print('\t \t Under', ccd_path, ':')
+    print('\t \t \t Co-added difference image, template image, co-add/template detections,')
+    print('\t \t \t equivalent radii distribution, offset distribution, list of co-add/template sources')
+        
+    print('\t \t Under', diffcut_path, ':')
+    print('\t \t \t Co-added difference image cutouts')
+        
+    print('\t \t Under', tempcut_path, ':')
+    print('\t \t \t Template image cutouts')
+        
+    print('\t \t Under', pdata_path, ':')
+    print('\t \t \t Photometry tables')
+        
+    print('\t \t Under', lc_path, ':')
+    print('\t \t \t Light curves \n')
+        
+    print('\t Removing FITS files', ('('+ naturalsize(init_size) + ') from directory'), dia_dir_path, '(total size', (naturalsize(final_size) + ')...'))
+    all_fits = glob.glob((dia_dir_path + '*.fits'))
+    for f in all_fits:
+        try:
+            os.remove(f)
+        except OSError as e:
+            print('Error: %s : %s' % (f, e.strerror))
+    postrem_size = os.stat(dia_dir_path).st_size
+    print('\t FITS files removed from directory', dia_dir_path, '(total size', (naturalsize(postrem_size) + '). \n'))
+    
+    print('---Offset code executed in %.2f minutes--- \n' % float((time.time() - start_time)/60))
+    
     return
 
-#################################################################################################
-# Main function example usage:
-# main('C:/Users/Gaby/Documents/DES/SP_2021/PHL_293B_validation/TARGET', 34)
+###############################################################################
+# Main function:
+# main('C:/Users/Gaby/Documents/DES/SP_2021/PHL_293B_validation/TARGET', 34, 'g')
