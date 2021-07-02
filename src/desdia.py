@@ -81,6 +81,7 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
         #        print(tile_dir)
         #        offset.main(tile_dir, ccd)
     # Save data to out_dir
+    np.savetxt(os.path.join(tile_dir,'image_list.csv'), image_list, delimiter=',')
     print('Compressing and transfering files.')
     # Compress and transfer files
     if fermigrid == True:
