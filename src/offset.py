@@ -1,6 +1,6 @@
-n function input, see line 719
+# For main function input, see line 720
 
-# Last modified 6/22/2021
+# Last modified 7/7/2021
 import os
 import glob
 import math
@@ -12,7 +12,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import astropy.units as u
-from astropy.io import fits
+from astropy.io import fits, ascii
 from astropy.wcs import WCS
 from astropy.coordinates import SkyCoord
 from astropy.nddata.utils import Cutout2D
@@ -22,14 +22,14 @@ from astropy.visualization.mpl_normalize import ImageNormalize
 from astropy.modeling.models import Gaussian2D
 from astropy.convolution import Gaussian2DKernel
 from astropy.stats import gaussian_fwhm_to_sigma
-from photutils.segmentation import detect_threshold, detect_sources, deblend_sources, SourceCatalog
-from photutils import DAOStarFinder, CircularAperture, aperture_photometry
+from photutils import DAOStarFinder, CircularAperture, aperture_photometry, SkyCircularAperture
 from scipy.stats import norm, halfnorm
 import warnings
 from humanize import naturalsize
 
 #ignore by message
 warnings.filterwarnings("ignore", message="The kernel is not normalized")
+warnings.filterwarnings("ignore", message="UserWarning: Matplotlib is currently using agg, which is a non-GUI backend, so cannot show the figure.")
 
 plt.style.use('seaborn-whitegrid')
 
@@ -220,11 +220,11 @@ def flag_check(photometry_table):
 def flag_data(photometry_table, flag_bool):
     idx = np.where(photometry_table['Flag']==flag_bool)[0]
     mjd = photometry_table['MJD'][idx]
-    cts = [photometry_table['ap_sum_3'][idx], photometry_table['ap_sum_4'][idx], 
-           photometry_table['ap_sum_5'][idx]]
-    cts_err = [photometry_table['ap_sum_3_err'][idx], photometry_table['ap_sum_4_err'][idx],
-               photometry_table['ap_sum_5_err'][idx]]
-    return idx, mjd, cts, cts_err
+    mag = [photometry_table['mag_3'][idx], photometry_table['mag_4'][idx], 
+           photometry_table['mag_5'][idx]]
+    merr = [photometry_table['merr_3'][idx], photometry_table['merr_4'][idx],
+               photometry_table['merr_5'][idx]]
+    return idx, mjd, mag, merr
 
 # Compute variability statistics & add to arrays for source table:
 def var_stats(flux, flux_err, arr_snr, arr_avg, arr_sigavg, arr_rms, arr_sigrms):
@@ -237,8 +237,32 @@ def var_stats(flux, flux_err, arr_snr, arr_avg, arr_sigavg, arr_rms, arr_sigrms)
     arr_sigrms.append(sigrms)
     return 
 
+# Remove files with a specific extension once offset code is done:
+def rem_files(filepaths_arr):
+    for i in filepaths_arr:
+        try:
+            os.remove(i)
+        except OSError as e:
+            print('Error: %s : %s' % (f, e.strerror))
+    return
+
+# Convert ADUs to magnitudes, per SExtractor documentation:
+def sx_mag(ap_sum, zero_point):
+    if ap_sum > 0:
+        mag = zero_point -2.5*np.log10(ap_sum)
+    else:
+        mag = 99.0
+    return mag
+
+def sx_mag_err(ap_sum, ap_sum_err, zero_point):
+    if ap_sum > 0:
+        merr = (2.5/np.log(10)) * (ap_sum_err/ap_sum)
+    else:
+        merr = 99.0
+    return merr
+    
 # Main function:
-def main(dia_dir_path, ccd, band='g'):
+def main(dia_dir_path, nsa_path, ccd, band='g'):
     start_time = time.time()
     print('---Beginning offset code...---')
     init_size = os.stat(dia_dir_path).st_size
@@ -248,7 +272,7 @@ def main(dia_dir_path, ccd, band='g'):
     # diff_path = dia_dir_path + '/*_%s_c%_*_*proj_diff.fits' % (band, ccd)
     diff_path = dia_dir_path + '/*proj_diff.fits'
     diff_files = glob.glob(diff_path)
-    empty_files = []
+    empty_diff = []
     ok_diff = []
    
     # Difference image weights/error:
@@ -271,11 +295,8 @@ def main(dia_dir_path, ccd, band='g'):
     print('\t \t # difference image weights files:', len(ok_dw), '(OK),', len(empty_dw), '(empty) \n')
     
     # Template image:
-    temp_files= dia_dir_path + '/template_c%d.fits' % ccd
-    temp_path = glob.glob(temp_files)
-    for i in range(len(temp_path)):
-        if temp_path[i].endswith('weight.fits'):
-            temp_path.pop(i)
+    temp_path = dia_dir_path + '/template_c%d.fits' % ccd
+    wtemp_path = dia_dir_path + '/template_c%d.weight.fits' % ccd
         
     ##### PULL DATA, HEADERS FROM FITS FILES: 
     # Difference images & weights:
@@ -295,8 +316,10 @@ def main(dia_dir_path, ccd, band='g'):
         dw_hdr_set.append(dw_hdr)
     
     #Template images:
-    temp_data, temp_hdr = fits.getdata(str(temp_path[0]), header=True)
-    
+    # temp_data, temp_hdr = fits.getdata(str(temp_path[0]), header=True)
+    temp_data, temp_hdr = fits.getdata(temp_path, header=True)
+    wtemp_data, wtemp_hdr = fits.getdata(wtemp_path, header=True)
+
     ccd_path= dia_dir_path + '/' + str(temp_hdr['CCDNUM']) + 'des_offset'
     os.mkdir(ccd_path)
     
@@ -391,57 +414,19 @@ def main(dia_dir_path, ccd, band='g'):
     temp_sources.add_column(temp_skycoord, name='SkyCoord')
 
     # Get size of each extended source in template image:
-    temp_gal_eqrad = []
-    for i in range(len(temp_sources)):
-        temp_gal_cut = Cutout2D(temp_data, position=(temp_sources[i]['xcentroid'], temp_sources[i]['ycentroid']),
-                                size=(ap_pix*2, ap_pix*2))
-        
-        threshold = detect_threshold(temp_gal_cut.data, nsigma=3.)
-        sigma = 3.0 * gaussian_fwhm_to_sigma
-        kernel = Gaussian2DKernel(sigma, x_size=3, y_size=3)
-        segm = detect_sources(temp_gal_cut.data, threshold, npixels=10, filter_kernel=kernel)
-        #segm_deblend = deblend_sources(temp_gal_cut.data, segm, npixels=5, filter_kernel=kernel, nlevels=32, 
-        #                               contrast=0.01)
+    nsa_tab = Table.read(nsa_path) # make sure to import table!
+    nsa_skycoord = SkyCoord(ra=nsa_tab['RA']*u.deg, dec=nsa_tab['DEC']*u.deg, frame='icrs')
     
-        normgal = ImageNormalize(stretch=SqrtStretch())
-        tempgal_fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12.5))
-        ax1.imshow(temp_gal_cut.data, origin='lower', cmap='gray', norm=normgal)
-        ax1.set_title('Template Image Data')
-        #cmap = segm_deblend.make_cmap(seed=123)
-        cmap = segm.make_cmap(seed=123)
-        #ax2.imshow(segm_deblend, origin='lower', cmap=cmap, interpolation='nearest')
-        ax2.imshow(segm, origin='lower', cmap=cmap, interpolation='nearest')
-        ax2.set_title('Segmentation Image')
-        
-        plt.close('all')
-        
-        #temp_gal_cat = SourceCatalog(temp_gal_cut.data, segm_deblend)
-        temp_gal_cat = SourceCatalog(temp_gal_cut.data, segm)
-        temp_gal_eqrad.append(np.round((temp_gal_cat.equivalent_radius).value[0], 3)) # eq radii in pixels
-    
-    temp_gal_eqrad = temp_gal_eqrad*u.pix * pix_scale # convert to eq radii in arcsec
-    
-    # Visualize distribution of equivalent radii: 
-    fig1, (ax1, ax2, ax3) = plt.subplots(3,1, figsize = (10, 15), sharex=True, tight_layout=True)
-    
-    sns.histplot(data=temp_gal_eqrad / u.arcsec, x=temp_gal_eqrad / u.arcsec, ax=ax1, stat='count', kde=True, color='green')
-    ax1.set(xlabel="Equivalent Radius ('')", ylabel="Counts", title="Raw data + KDE");
-    
-    sns.histplot(data=temp_gal_eqrad / u.arcsec, x=temp_gal_eqrad / u.arcsec, ax=ax2, stat='probability', kde=True, color='blue')
-    ax2.set(xlabel="Equivalent Radius ('')", ylabel="Probability", title="Normed data + KDE");
-
-    X = np.linspace(0, max(temp_gal_eqrad).value, 100)
-    mu, std = norm.fit(temp_gal_eqrad / u.arcsec)
-    p = norm.pdf(X, mu, std)
-    
-    ax3.plot(X, p, 'k', linewidth=2, label='Gaussian')
-    sns.histplot(data=temp_gal_eqrad / u.arcsec, x=temp_gal_eqrad / u.arcsec, ax=ax3, stat='density')
-    ax3.set(xlabel="Equivalent Radius ('')", ylabel="Density", title="Template Galaxies ER Distribution")
-    ax3.legend(loc='best')
-    plt.savefig((ccd_path + '/eqrad_dist.jpg'), facecolor='white', transparent=False)
-
-    gauss = "\t Gaussian fit (eq. radius distribution): mu = %.2f '',  std = %.2f '' " % (mu, std)
-    print(gauss)
+    nsa_idx, temp_idx, d2d, d3d = temp_skycoord.search_around_sky(nsa_skycoord, 2*u.arcsec)
+    if len(nsa_idx) > 0:
+        temp_gal_p90 = nsa_tab['PETROTH90'][np.array(nsa_idx).astype(np.int)] # units in arcseconds
+        temp_gal_p90 = np.array(temp_gal_p90).astype(np.int)
+        temp_sources = temp_sources[np.asarray(temp_idx).astype(np.int)] # only keep sources in NSA
+        nsa_tab = nsa_tab[np.asarray(nsa_idx).astype(np.int)]
+    else:
+        print('Error: No sources detected in the template image match the NASA-Sloan Atlas. Try another CCD.')
+        print('Exiting offset analysis...')
+        return
     
     temp_idcs = []
     diff_idcs = []
@@ -449,10 +434,9 @@ def main(dia_dir_path, ccd, band='g'):
     # Calculate pair-wise separation:
     for i in range(len(temp_sources)):
         d2d = temp_sources[i]['SkyCoord'].separation(diff_sources['SkyCoord'])
-        sep_bool = d2d.to(u.arcsec) < temp_gal_eqrad[i]
+        sep_bool = (d2d.to(u.arcsec)).value < temp_gal_p90[i]
         diff_idx = np.where(sep_bool)[0]
         diff_dist = d2d[diff_idx].to(u.arcsec)
-        
         if len(diff_idx) > 0:
             for j in range(len(diff_idx)):
                 temp_idcs.append(i)
@@ -576,12 +560,12 @@ def main(dia_dir_path, ccd, band='g'):
                  'roundness2','npix','sky','peak','flux','mag','SkyCoord']
     diff_sources = diff_sources[new_order]
     temp_sources = temp_sources[new_order]
-    diff_sources.write((ccd_path + '/diff_sources.csv'), format=ascii.csv)
-    temp_sources.write((ccd_path + '/temp_sources.csv'), format=ascii.csv)
+    diff_sources.write((ccd_path + '/diff_sources.csv'), format='ascii.csv')
+    temp_sources.write((ccd_path + '/temp_sources.csv'), format='ascii.csv')
     
     ##### PHOTOMETRY:
     pdata_path = ccd_path + "/phot_data"
-    os.mkdir(photdata_path)
+    os.mkdir(pdata_path)
     lc_path = ccd_path + "/light_curves"
     os.mkdir(lc_path)
 
@@ -601,6 +585,34 @@ def main(dia_dir_path, ccd, band='g'):
     #sigrms4 = []
     #sigrms5 = []
 
+    # Calculate magnitude of each template image source using pixel counts:
+    for i in range(len(temp_sources)):
+        temp_phot_ap = SkyCircularAperture(positions=temp_sources['SkyCoord'][i], r=1.5*u.arcsec)
+        temp_phot_ap = temp_phot_ap.to_pixel(wcs=w_temp)
+        temp_phot_tab = aperture_photometry(temp_data, temp_phot_ap, error=wtemp_data)
+        if i==0:
+            tphot_tab = temp_phot_tab
+        else:
+            tphot_tab2 = temp_phot_tab
+            tphot_tab = vstack([tphot_tab, tphot_tab2])
+        
+    zp_decam = 30 # arbitrarily defined here, but check hdul info
+    temp_mags = []
+    temp_merr = []
+    for i in range(len(tphot_tab)):
+        t_mag = sx_mag(tphot_tab['aperture_sum'][i], zp_decam)
+        t_merr = sx_mag_err(tphot_tab['aperture_sum'][i], tphot_tab['aperture_sum_err'][i], zp_decam)
+        temp_mags.append(t_mag)
+        temp_merr.append(t_merr)
+    tphot_tab.add_column(temp_mags, name='mag_des')
+    tphot_tab.add_column(temp_err, name='mag_des_err')
+    
+    # Calibrate temp mags to NSA data to find the zero point between DES & NSA:
+    fiber_mag = 22.5 - 2.5*np.log10(nsa_tab['FIBERFLUX'][3]) # check to make sure it's g-band!
+    fiber_merr = 22.5 - 2.5*np.log10((nsa_tab['FIBERFLUX_IVAR'][3]**(-1/2)))
+    des_to_nsa = fiber_mag - tphot_tab['mag_des']
+    des_to_nsa_err = fiber_merr - tphot_tab['mag_des']
+    
     # For each source, extract data from the difference images:
     print('\t Performing aperture photometry...')
     print('\t Making and saving light curves... \n')
@@ -608,69 +620,58 @@ def main(dia_dir_path, ccd, band='g'):
         # Aperture photometry:
         radii = [np.round(3*u.arcsec / pix_scale).value/2., np.round(4*u.arcsec / pix_scale).value/2., 
                  np.round(5*u.arcsec / pix_scale).value/2.]
+        diffim_aps = [CircularAperture([diff_sources[i]['xcentroid'], diff_sources[i]['ycentroid']], r=r) for r in radii]
         
         for j in range(len(abs_diff_data)):
-            diffim_aps = [CircularAperture([diff_sources[i]['xcentroid'], diff_sources[i]['ycentroid']], r=r) 
-                          for r in radii]
+            ptab = aperture_photometry(abs_diff_data[j], diffim_aps, error=dw_data_set[j])
+            ap_names_og = ['aperture_sum_0', 'aperture_sum_1', 'aperture_sum_2']
+            ap_names_new = ['ap_sum3', 'ap_sum4', 'ap_sum5']
+            mag_names = ['mag_3', 'mag_4', 'mag_5']
+            ap_err_og = ['aperture_sum_err_0', 'aperture_sum_err_1', 'aperture_sum_err_2']
+            ap_err_new = ['ap_sum3_err', 'ap_sum4_err', 'ap_sum5_err']
+            merr_names = ['merr_3', 'merr_4', 'merr_5']
+            
+            for k in range(len(ap_mag_og)):
+                ptab.rename_column(ap_names_og[k], ap_names_new[k])
+                ptab[mag_names[k]] = sx_mag(ptab[ap_names_new[k]], zp_decam) + des_to_nsa[i]
+                ptab.rename_column(ap_err_og[k], ap_err_new[k])
+                ptab[merr_names[k]] = sx_mag_err(ptab[ap_names_new[k]], ptab[ap_err_new[k]], zp_decam) + des_to_nsa_err[i]
+            
+            ptab['MJD'] = diff_hdr_set[j]['MJD-OBS']
+            ptab = flag_check(ptab)
+            ptab['diff_id'] = str(ok_diff[j])
+            pt_order = ['MJD', 'xcenter', 'ycenter', 'ap_sum3', 'ap_sum3_err', 'mag_3', 'merr_3',
+                        'ap_sum4', 'ap_sum4_err', 'mag_4', 'merr_4', 'ap_sum5', 'ap_sum5_err',
+                        'mag_5', 'merr_5', 'Flag', 'diff_id']
+            ptab = ptab[pt_order]
             
             if j==0:
-                phot_table = aperture_photometry(abs_diff_data[j], diffim_aps, error=dw_data_set[j])
-                for col in phot_table.colnames:
-                    phot_table[col].info.format = '%.8g'
-                phot_table.rename_column('aperture_sum_0', 'ap_sum_3')
-                phot_table.rename_column('aperture_sum_err_0', 'ap_sum_3_err')
-                phot_table.rename_column('aperture_sum_1', 'ap_sum_4')
-                phot_table.rename_column('aperture_sum_err_1', 'ap_sum_4_err')
-                phot_table.rename_column('aperture_sum_2', 'ap_sum_5')
-                phot_table.rename_column('aperture_sum_err_2', 'ap_sum_5_err')
-                phot_table.add_column(diff_hdr_set[j]['MJD-OBS'], name='MJD')
-                phot_table = flag_check(phot_table)
-                phot_table['diff_id'] = str(ok_diff[j])
-                pt_order = ['MJD', 'xcenter', 'ycenter', 'ap_sum_3', 'ap_sum_3_err', 
-                            'ap_sum_4', 'ap_sum_4_err', 'ap_sum_5', 'ap_sum_5_err', 'Flag','diff_id']
-                phot_table = phot_table[pt_order]
-            
+               phot_table = ptab
             else:
-                ptab2 = aperture_photometry(abs_diff_data[j], diffim_aps, error=dw_data_set[j])
-                for col in ptab2.colnames:
-                    ptab2[col].info.format = '%.8g'
-                ptab2.rename_column('aperture_sum_0', 'ap_sum_3')
-                ptab2.rename_column('aperture_sum_err_0', 'ap_sum_3_err')
-                ptab2.rename_column('aperture_sum_1', 'ap_sum_4')
-                ptab2.rename_column('aperture_sum_err_1', 'ap_sum_4_err')
-                ptab2.rename_column('aperture_sum_2', 'ap_sum_5')
-                ptab2.rename_column('aperture_sum_err_2', 'ap_sum_5_err')
-                ptab2.add_column(diff_hdr_set[j]['MJD-OBS'], name='MJD')
-                ptab2 = flag_check(ptab2)
-                ptab2['diff_id'] = str(ok_diff[j])
-                ptab2 = ptab2[pt_order]
-                phot_table = vstack([phot_table, ptab2])
+               phot_table2 = ptab
+               phot_table = vstack([phot_table, phot_table2])
         
         #var_stats(flux, flux_err, arr_snr, arr_avg, arr_sigavg, arr_rms, arr_sigrms)
         ptab_name = djnames[i] + "_photdata_matchid_" + str(match_ids[i])
-        phot_table.write((pdata_path + '/' + ptab_name + '.csv'), format=ascii.csv)
+        phot_table.write((pdata_path + '/' + ptab_name + '.csv'), format='ascii.csv')
         
         # Extract photometry data for non-flagged (norm_...) & flagged (flag_...) difference images:
-        pix_cts = [phot_table['ap_sum_3'], phot_table['ap_sum_4'], phot_table['ap_sum_5']]
-        pix_cts_err = [phot_table['ap_sum_3_err'], phot_table['ap_sum_4_err'], phot_table['ap_sum_5_err']]
-       
-        norm_idx, norm_mjd, norm_cts, norm_cts_err = flag_data(phot_table, False) 
-        flag_idx, flag_mjd, flag_cts, flag_cts_err = flag_data(phot_table, True)
+        norm_idx, norm_mjd, norm_mag, norm_merr = flag_data(phot_table, False) 
+        flag_idx, flag_mjd, flag_mag, flag_merr = flag_data(phot_table, True)
         
         # Plot light curves for each aperture:
         fig2, axes = plt.subplots(nrows=3, ncols=1, sharex=True)
         leg_labs = ['3', '4', '5']
         lc_name = djnames[i] + "_lc_matchid_" + str(match_ids[i])
 
-        for k in range(len(pix_cts)):
-            axes[k].errorbar(norm_mjd, norm_cts[k], yerr=norm_cts_err[k], ecolor='black', mfc='black', 
+        for k in range(len(leg_labs)):
+            axes[k].errorbar(norm_mjd, norm_mag[k], yerr=norm_merr[k], ecolor='black', mfc='black', 
                             mec='black', marker='o', ls='', label='No Flag')
             if len(flag_idx > 0):
-                axes[k].errorbar(flag_mjd, flag_cts[k], yerr=flag_cts_err[k], ecolor='darkgray', mfc='darkgray', 
+                axes[k].errorbar(flag_mjd, flag_mag[k], yerr=flag_merr[k], ecolor='darkgray', mfc='darkgray', 
                             mec='darkgray', marker='o', ls='', label='Flag')
             axes[k].legend(loc='best', frameon=True, title=leg_labs[k] + "'' Aperture")
-            axes[k].set_ylabel(r'Brightness (e$^-$/s)')
-            axes[k].set_yscale('log')
+            axes[k].set_ylabel('$g$ magnitude')
             if (k==0):
                 axes[k].set_title('Source ' + djnames[i] + ' Light Curve')
             if (k==2):
@@ -686,7 +687,7 @@ def main(dia_dir_path, ccd, band='g'):
     print('\t ---------------------')
     print('\t \t Under', ccd_path, ':')
     print('\t \t \t Co-added difference image, template image, co-add/template detections,')
-    print('\t \t \t equivalent radii distribution, offset distribution, list of co-add/template sources')
+    print('\t \t \t offset distribution, list of co-add/template sources')
         
     print('\t \t Under', diffcut_path, ':')
     print('\t \t \t Co-added difference image cutouts')
@@ -701,12 +702,12 @@ def main(dia_dir_path, ccd, band='g'):
     print('\t \t \t Light curves \n')
         
     print('\t Removing FITS files', ('('+ naturalsize(init_size) + ') from directory'), dia_dir_path, '(total size', (naturalsize(final_size) + ')...'))
-    all_fits = glob.glob((dia_dir_path + '*.fits'))
-    for f in all_fits:
-        try:
-            os.remove(f)
-        except OSError as e:
-            print('Error: %s : %s' % (f, e.strerror))
+    all_fits = glob.glob((dia_dir_path + '/*.fits'))
+    all_cat = glob.glob((dia_dir_path + '/*.cat'))
+    all_head = glob.glob((dia_dir_path + '/*.head'))
+    rem_files(all_fits)
+    rem_files(all_cat)
+    rem_files(all_head)
     postrem_size = os.stat(dia_dir_path).st_size
     print('\t FITS files removed from directory', dia_dir_path, '(total size', (naturalsize(postrem_size) + '). \n'))
     
@@ -716,4 +717,4 @@ def main(dia_dir_path, ccd, band='g'):
 
 ###############################################################################
 # Main function:
-# main('C:/Users/Gaby/Documents/DES/SP_2021/PHL_293B_validation/TARGET', 34, 'g')
+main('/data/des80.a/data/gtorrini/1', '/data/des80.a/data/cburke/nsa_v0_1_2.fits', 1, 'g')
