@@ -376,8 +376,9 @@ class Pipeline:
             print('Performing forced photometry.')
             file_info = clean_tpool(self.forced_photometry,file_info,num_threads)
             # write lightcurve data
-            print('Generating light curves.')
-            self.generate_light_curves(file_info)
+	    # seems to be different numbers of detections in template and diff images for some reason
+            #print('Generating light curves.')
+            #self.generate_light_curves(file_info)
             # TODO clean directory
             # Coadd difference frames
             if coadd_diff:
