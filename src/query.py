@@ -53,8 +53,8 @@ class Query:
         info_list = self.cur.fetchall()
         if len(info_list) > 0:
             # Use the first pointing if there are multiple overlapping
-            if len(info_list) > 1:
-                info_list = info_list[0]
+            #if len(info_list) > 1:
+            #    info_list = info_list[0]
             dtype = [("TRADEG",float),("TDECDEG",float),("mjd_obs",float),('ccd',float)]
             info_list = np.array(info_list,dtype=dtype)
             return info_list

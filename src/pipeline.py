@@ -334,7 +334,7 @@ class Pipeline:
         return
     
 
-    def run_ccd_survey(self,image_list,query_sci,num_threads=1,template_season=6,fermigrid=False,band='g',coadd_diff=False):
+    def run_ccd_survey(self,image_list,query_sci,num_threads=1,template_season=6,fermigrid=False,band='g',coadd_diff=False,offset=False):
         # given list of single-epoch image filenames in same pointing, execute pipeline
         print('Pooling %d single-epoch images to %d threads.' % (len(image_list),num_threads))
         print('Downloading images, making weight maps and image masks.')
@@ -343,6 +343,8 @@ class Pipeline:
         file_info_all = clean_tpool(self.make_weight, file_info_all, num_threads)
         print('Making templates and aligning frames.')
         # CCD loop in template list
+        print(file_info_all['ccd'])
+        print(np.sort(np.unique(file_info_all['ccd'])))
         for ccd in np.sort(np.unique(file_info_all['ccd'])):
             print('Running CCD %d.' % ccd)
             file_info_template = file_info_all[file_info_all['ccd']==ccd]
@@ -377,9 +379,10 @@ class Pipeline:
             file_info = clean_tpool(self.forced_photometry,file_info,num_threads)
             # write lightcurve data
 	    # seems to be different numbers of detections in template and diff images for some reason
-            #print('Generating light curves.')
-            #self.generate_light_curves(file_info)
-            # TODO clean directory
+            if offset==False:
+                print('Generating light curves.')
+                self.generate_light_curves(file_info)
+                # TODO clean directory
             # Coadd difference frames
             if coadd_diff:
                 print('Making coadd of difference frames.')

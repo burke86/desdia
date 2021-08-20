@@ -52,7 +52,7 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
             pointing_list = query_sci.get_pointing_coord(targetra,targetdec,band,template_season)
             # Get template filename info at requested pointing
             image_list = query_sci.get_image_info_pointing(pointing_list['TRADEG'][0],pointing_list['TDECDEG'][0],pointing_list['mjd_obs'][0],band=band)
-            ccd = pointing_list['ccd']
+            ccd = image_list['ccd'][0]
     if image_list is None:
         print("***No images found in field/tile %s!***" % pointing)
         return
@@ -73,13 +73,7 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
     # Main survey
     else:
         # Here image_list is just the template image info
-        des_pipeline.run_ccd_survey(image_list,query_sci,num_threads,template_season,fermigrid,band,coadd_diff=False)
-        # Compute offsets for each CCD
-        #if offset:
-        #    import offset
-        #    for ccd in image_list['ccd']:
-        #        print(tile_dir)
-        #        offset.main(tile_dir, ccd)
+        des_pipeline.run_ccd_survey(image_list,query_sci,num_threads,template_season,fermigrid,band,coadd_diff=False,offset=offset)
     # Save data to out_dir
     b = np.vstack(map(list, image_list))
     np.savetxt(os.path.join(tile_dir,'image_list.csv'), b, fmt=','.join(['%s']*b.shape[1]))
