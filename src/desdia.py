@@ -73,7 +73,7 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
     # Main survey
     else:
         # Here image_list is just the template image info
-        des_pipeline.run_ccd_survey(image_list,query_sci,num_threads,template_season,fermigrid,band,coadd_diff=False,offset=offset)
+        des_pipeline.run_ccd_survey(image_list,query_sci,num_threads,template_season,fermigrid,band,coadd_diff=offset,offset=offset)
     # Save data to out_dir
     b = np.vstack(map(list, image_list))
     np.savetxt(os.path.join(tile_dir,'image_list.csv'), b, fmt=','.join(['%s']*b.shape[1]))

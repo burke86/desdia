@@ -13,8 +13,8 @@ def difference(file_info):
     path_root = os.path.dirname(local_path)
     file_sci = file_root + ".fits"
     file_wgt = file_root + ".weight.fits"
-    outfile_sci = file_root + "_diff.fits"
-    outfile_wgt = file_root + "_diff.weight.fits"
+    outfile_sci = file_root + "_template_c%d" % ccd + "_diff.fits"
+    outfile_wgt = file_root + "_template_c%d" % ccd + "_diff.weight.fits"
     template_sci = os.path.join(path_root,"template_c%d.fits" % ccd)
     template_wgt = os.path.join(path_root,"template_c%d.weight.fits" % ccd)
     hotpants_pars = ''.join(open(hotpants_file,'r').readlines())
@@ -125,7 +125,7 @@ class Pipeline:
             try:
                 with fits.open(f[:-4]+".fits") as hdul:
                     hdu = hdul[0]
-                    hdu = fits.PrimaryHDU((hdu.data)**2, hdu.header)
+                    hdu = fits.PrimaryHDU(np.abs(hdu.data), hdu.header)
                     f_abs = f[:-4] + "_abs.fits"
                     hdu.writeto(f_abs, clobber=True)
                     info_list_abs.append(f_abs)
@@ -289,11 +289,11 @@ class Pipeline:
         ccd = info_list["ccd"]
         file_root = local_path[0:-5]
         path_root = os.path.dirname(local_path)
-        outfile_sci = file_root + "_diff.fits"
-        outfile_wgt = file_root + "_diff.weight.fits"
+        outfile_sci = file_root + "_template_c%d" % ccd + "_diff.fits"
+        outfile_wgt = file_root + "_template_c%d" % ccd + "_diff.weight.fits"
         template_sci = os.path.join(path_root,"template_c%d.fits" % ccd)
         template_wgt = os.path.join(path_root,"template_c%d.weight.fits" % ccd)
-        outfile_cat = file_root + "_diff.cat"
+        outfile_cat = file_root + "_template_c%d" % ccd + "_diff.cat"
         code = 0
         # SExtractor double image mode
         if not os.path.exists(outfile_cat):
