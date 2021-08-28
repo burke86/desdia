@@ -55,7 +55,7 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
             image_list = query_sci.get_image_info_pointing(pointing_list['TRADEG'][0],pointing_list['TDECDEG'][0],pointing_list['mjd_obs'][0],band=band)
             # Restrict to images with just the target
             if ccd is None:
-                mask_target = (image_list['ramin'] < targetra < image_list['ramax']) & (image_list['decmin'] < targetdec < image_list['decmax'])
+                mask_target = (image_list['ramin'] < targetra) & (targetra < image_list['ramax']) & (image_list['decmin'] < targetdec) & (targetdec < image_list['decmax'])
                 ccd = image_list['ccd'][mask_target]
             else:
                 print('***Warning: You specified a CCD and a target coordinate, which is usually not desired.***')
