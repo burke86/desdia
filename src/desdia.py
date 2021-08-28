@@ -48,11 +48,17 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
             # Get template filename info at requested pointing
             image_list = query_sci.get_image_info_pointing(data['tra'],data['tdec'],data['mjd_obs'],band=band)
         else:
+            # TODO: RACROSS0 edge case
             # Get template pointing at target
             pointing_list = query_sci.get_pointing_coord(targetra,targetdec,band,template_season)
             # Get template filename info at requested pointing
             image_list = query_sci.get_image_info_pointing(pointing_list['TRADEG'][0],pointing_list['TDECDEG'][0],pointing_list['mjd_obs'][0],band=band)
-            ccd = image_list['ccd'][0]
+            # Restrict to images with just the target
+            if ccd is None:
+                mask_target = (image_list['ramin'] < targetra < image_list['ramax']) & (image_list['decmin'] < targetdec < image_list['decmax'])
+                ccd = image_list['ccd'][mask_target]
+            else:
+                print('***Warning: You specified a CCD and a target coordinate, which is usually not desired.***')
     if image_list is None:
         print("***No images found in field/tile %s!***" % pointing)
         return
