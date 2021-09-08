@@ -331,7 +331,7 @@ class Pipeline:
             print('Generating light curves.')
             self.generate_light_curves(file_info)
             # clean directory
-        return
+        return file_info_all
     
 
     def run_ccd_survey(self,image_list,query_sci,num_threads=1,template_season=6,fermigrid=False,band='g',coadd_diff=False,offset=False):
@@ -343,8 +343,7 @@ class Pipeline:
         file_info_all = clean_tpool(self.make_weight, file_info_all, num_threads)
         print('Making templates and aligning frames.')
         # CCD loop in template list
-        print(file_info_all['ccd'])
-        print(np.sort(np.unique(file_info_all['ccd'])))
+        image_list_all = []
         for ccd in np.sort(np.unique(file_info_all['ccd'])):
             print('Running CCD %d.' % ccd)
             file_info_template = file_info_all[file_info_all['ccd']==ccd]
@@ -387,5 +386,6 @@ class Pipeline:
             if coadd_diff:
                 print('Making coadd of difference frames.')
                 self.make_coadd_diff(file_info,num_threads=num_threads)
-        return
+            image_list_all.append(image_list)
+        return image_list_all
     
