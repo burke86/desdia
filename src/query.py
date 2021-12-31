@@ -153,10 +153,9 @@ class Query:
             info_list += self.cur.fetchall()
         else: # Yue's follow up programs of special fields
             # get images
-            get_list = "select f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from DECADE.FILE_ARCHIVE_INFO f, DECADE.IMAGE i, DECADE.EXPOSURE e, DECADE.QA_SUMMARY s, DECADE.CATALOG c where c.expnum in (select expnum from DECADE.EXPOSURE where propid in ('2019A-0065','2019B-0219','2019B-0304','2019B-1005','2019B-1011','2019B-0910','2021A-0037','2021A-0113','2021B-0038') and obstype='object') and c.expnum=i.expnum and c.ccdnum=i.ccdnum and i.filetype='red_immask' and f.filename=c.filename and i.expnum=e.expnum and e.expnum=s.expnum and c.filetype='cat_finalcut' and i.band=:band and e.OBJECT=:field order by c.expnum, c.ccdnum"
+            get_list = "select f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from DECADE.FILE_ARCHIVE_INFO f, DECADE.IMAGE i, DECADE.EXPOSURE e, DECADE.QA_SUMMARY s, DECADE.CATALOG c where c.expnum in (select expnum from DECADE.EXPOSURE where propid in ('2019A-0065','2019B-0219','2019B-0304','2019B-1005','2019B-1011','2019B-0910','2021A-0037','2021A-0113','2021B-0038') and obstype='object') and i.filetype='red_immask' and f.filename=i.filename and c.expnum=i.expnum and i.expnum=e.expnum and e.expnum=s.expnum and i.band=:band and e.OBJECT=:field"
             self.cur.execute(get_list,band=band,field=field)
             info_list = self.cur.fetchall()
-            print(field)
         # TODO: Search misc fields
         if len(info_list) > 0:
             dtype = [("filename","|S41"),("path","|S200"),("compression","|S4"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float)]
@@ -164,7 +163,6 @@ class Query:
             # Form URL and data type
             ccd_list = [f["filename"].split('_c')[1][:2] for f in info_list]
             info_list["compression"] = ["" if f["compression"]=='None' else f["compression"] for f in info_list]
-            print(info_list["compression"])
             url_list = [self.base_url+f["path"]+"/"+f["filename"]+f["compression"] for f in info_list]
             dtype = [("path","|S300"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float),("ccd",int)]
             info_list = list(zip(url_list,info_list["psf_fwhm"],info_list["skysigma"],info_list["mjd_obs"],ccd_list))

@@ -43,7 +43,6 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
     if pointing.startswith('SN-') or pointing.lower() == "cosmos" or "shen-" in pointing.lower():
         # pointing is the fieldname in this case
         pointing = pointing.lower().split('shen-')[1].upper()
-        print(pointing)
         image_list = query_sci.get_image_info_field(pointing,band)
     # Main survey (pointing is a value from 0-2038)
     else:
