@@ -18,6 +18,8 @@ The `-c` flag can be used to specify the CCD. The `-n` flag specifies the number
 
 `./desdia --field COSMOS -n 30 -c 1 -w /data/des80.a/data/${USER}/ --nowarn`
 
+`./desdia --field Shen-S-CVZ -n 30 -c 1 -s 8 -w /data/des80.a/data/${USER}/ --nowarn`
+
 
 #### Wide-Area (Main Survey)
 

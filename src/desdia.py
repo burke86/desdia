@@ -31,12 +31,19 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
     #if out_dir is None:
     #    out_dir = os.path.join(tile_dir,band)
     # Set up database
-    query_sci = query.Query('db-dessci')
+    if "shen-" in pointing.lower():
+        field = pointing.lower().split('shen-')[1].upper()
+        query_sci = query.Query('db-desoper','decade')
+    else:
+        field = None
+        query_sci = query.Query('db-dessci')
     print("Querying single-epoch images for %s." % pointing)
     # Get reduced filenames and related info
     # Supernova field
-    if pointing.startswith('SN-') or pointing.lower() == "cosmos":
+    if pointing.startswith('SN-') or pointing.lower() == "cosmos" or "shen-" in pointing.lower():
         # pointing is the fieldname in this case
+        pointing = pointing.lower().split('shen-')[1].upper()
+        print(pointing)
         image_list = query_sci.get_image_info_field(pointing,band)
     # Main survey (pointing is a value from 0-2038)
     else:
@@ -46,13 +53,13 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
             data = np.genfromtxt('./etc/y%dpoint.csv' % template_season,delimiter=',',skip_header=1,dtype=dtype)
             data = data[int(pointing)] # Get the pointing number
             # Get template filename info at requested pointing
-            image_list = query_sci.get_image_info_pointing(data['tra'],data['tdec'],data['mjd_obs'],band=band)
+            image_list = query_sci.get_image_info_pointing(data['tra'],data['tdec'],data['mjd_obs'],band=band,field=field)
         else:
             # TODO: RACROSS0 edge case
             # Get template pointing at target
-            pointing_list = query_sci.get_pointing_coord(targetra,targetdec,band,template_season)
+            pointing_list = query_sci.get_pointing_coord(targetra,targetdec,band,template_season,field=field)
             # Get template filename info at requested pointing
-            image_list = query_sci.get_image_info_pointing(pointing_list['TRADEG'][0],pointing_list['TDECDEG'][0],pointing_list['mjd_obs'][0],band=band)
+            image_list = query_sci.get_image_info_pointing(pointing_list['TRADEG'][0],pointing_list['TDECDEG'][0],pointing_list['mjd_obs'][0],band=band,field=field)
             # Restrict to images with just the target
             if ccd is None:
                 mask_target = (image_list['ramin'] < targetra) & (targetra < image_list['ramax']) & (image_list['decmin'] < targetdec) & (targetdec < image_list['decmax'])
@@ -73,7 +80,7 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
     
     print("Running pipeline.")
     # Supernova field
-    if pointing.startswith('SN-') or pointing.lower() == "cosmos":
+    if pointing.startswith('SN-') or pointing.lower() == "cosmos" or "shen-" in pointing.lower():
         # Here image_list is all image info
         image_list_all = des_pipeline.run_ccd_sn(image_list,num_threads,template_season,fermigrid)
     # Main survey
@@ -95,7 +102,7 @@ def main():
     # Set up arguments
     parser = argparse.ArgumentParser(description='DES difference imaging pipeline.')
     parser.add_argument('--survey',default=None,help='Survey pointing number (1-2180) or target name')
-    parser.add_argument('--field',type=str,default=None,help='Field name (e.g. SN-C3 or COSMOS)')
+    parser.add_argument('--field',type=str,default=None,help='Field name (e.g. SN-C3, S-CVZ, or COSMOS)')
     parser.add_argument('--ra',type=float,default=None,help="Target RA [deg.]")
     parser.add_argument('--dec',type=float,default=None,help="Target dec [deg.]")
     parser.add_argument('-c','--ccd',type=int,default=None,help="Which CCD to use (default is all; ignored if pointing=TARGET)")

@@ -30,7 +30,7 @@ def difference(file_info):
             with open(outfile_sci, 'w'): pass
             return None
     else:
-        print('***Difference image exists**')
+        print('***Difference image exists***')
     return
 
 
