@@ -153,7 +153,7 @@ class Query:
             info_list += self.cur.fetchall()
         else: # Yue's follow up programs of special fields
             # get images
-            get_list = "select unique f.filename f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from DECADE.FILE_ARCHIVE_INFO f, DECADE.IMAGE i, DECADE.EXPOSURE e, DECADE.QA_SUMMARY s, DECADE.CATALOG c where c.expnum in (select expnum from DECADE.EXPOSURE where propid in ('2019A-0065','2019B-0219','2019B-0304','2019B-1005','2019B-1011','2019B-0910','2021A-0037','2021A-0113','2021B-0038') and obstype='object') and i.filetype='red_immask' and f.filename=i.filename and c.expnum=i.expnum and i.expnum=e.expnum and e.expnum=s.expnum and i.band=:band and e.OBJECT=:field"
+            get_list = "select unique f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from DECADE.FILE_ARCHIVE_INFO f, DECADE.IMAGE i, DECADE.EXPOSURE e, DECADE.QA_SUMMARY s, DECADE.CATALOG c where c.expnum in (select expnum from DECADE.EXPOSURE where propid in ('2019A-0065','2019B-0219','2019B-0304','2019B-1005','2019B-1011','2019B-0910','2021A-0037','2021A-0113','2021B-0038') and obstype='object') and i.filetype='red_immask' and f.filename=i.filename and c.expnum=i.expnum and i.expnum=e.expnum and e.expnum=s.expnum and i.band=:band and e.OBJECT=:field"
             self.cur.execute(get_list,band=band,field=field)
             info_list = self.cur.fetchall()
         # TODO: Search misc fields
