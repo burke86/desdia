@@ -135,25 +135,25 @@ class Query:
             decmin, decmax = 1.22, 3.20
             ramin, ramax = 149.03, 151.21
             # get Y1-Y6 images
-            get_list = "select f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from y6a1_file_archive_info f, y6a1_image i, y6a1_exposure e, y6a1_qa_summary s, y6a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and i.dec_cent between :decmin and :decmax and i.ra_cent between :ramin and :ramax and i.band=:band and z.version=:version and e.mjd_obs>56400"
+            get_list = "select unique f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from y6a1_file_archive_info f, y6a1_image i, y6a1_exposure e, y6a1_qa_summary s, y6a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and i.dec_cent between :decmin and :decmax and i.ra_cent between :ramin and :ramax and i.band=:band and z.version=:version and e.mjd_obs>56400"
             self.cur.execute(get_list,decmin=decmin,decmax=decmax,ramin=ramin,ramax=ramax,band=band,version="y6a1_v2.1")
             info_list = self.cur.fetchall()
             # get SV images
-            get_list = "select f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from y4a1_file_archive_info f, y4a1_image i, y4a1_exposure e, y4a1_qa_summary s, y4a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and i.dec_cent between :decmin and :decmax and i.ra_cent between :ramin and :ramax and i.band=:band and z.version=:version and e.mjd_obs<56400"
+            get_list = "select unique f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from y4a1_file_archive_info f, y4a1_image i, y4a1_exposure e, y4a1_qa_summary s, y4a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and i.dec_cent between :decmin and :decmax and i.ra_cent between :ramin and :ramax and i.band=:band and z.version=:version and e.mjd_obs<56400"
             self.cur.execute(get_list,decmin=decmin,decmax=decmax,ramin=ramin,ramax=ramax,band=band,version="v2.0")
             info_list += self.cur.fetchall()
         elif field.startswith('SN-'): # Should start with "SN-*"
             # get Y1-Y6 images
-            get_list = "select f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from y6a1_file_archive_info f, y6a1_image i, y6a1_exposure e, y6a1_qa_summary s, y6a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and e.field=:field and e.program='supernova' and i.band=:band and z.version=:version and e.mjd_obs>56400"
+            get_list = "select unique f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from y6a1_file_archive_info f, y6a1_image i, y6a1_exposure e, y6a1_qa_summary s, y6a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and e.field=:field and e.program='supernova' and i.band=:band and z.version=:version and e.mjd_obs>56400"
             self.cur.execute(get_list,field=field,band=band,version="y6a1_v2.1")
             info_list = self.cur.fetchall()
             # get SV images
-            get_list = "select f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from y4a1_file_archive_info f, y4a1_image i, y4a1_exposure e, y4a1_qa_summary s, y4a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and e.field=:field and e.program='supernova' and i.band=:band and z.version=:version and e.mjd_obs<56400"
+            get_list = "select unique f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from y4a1_file_archive_info f, y4a1_image i, y4a1_exposure e, y4a1_qa_summary s, y4a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and e.field=:field and e.program='supernova' and i.band=:band and z.version=:version and e.mjd_obs<56400"
             self.cur.execute(get_list,field=field,band=band,version="v2.0")
             info_list += self.cur.fetchall()
         else: # Yue's follow up programs of special fields
             # get images
-            get_list = "select f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from DECADE.FILE_ARCHIVE_INFO f, DECADE.IMAGE i, DECADE.EXPOSURE e, DECADE.QA_SUMMARY s, DECADE.CATALOG c where c.expnum in (select expnum from DECADE.EXPOSURE where propid in ('2019A-0065','2019B-0219','2019B-0304','2019B-1005','2019B-1011','2019B-0910','2021A-0037','2021A-0113','2021B-0038') and obstype='object') and i.filetype='red_immask' and f.filename=i.filename and c.expnum=i.expnum and i.expnum=e.expnum and e.expnum=s.expnum and i.band=:band and e.OBJECT=:field"
+            get_list = "select unique f.filename f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from DECADE.FILE_ARCHIVE_INFO f, DECADE.IMAGE i, DECADE.EXPOSURE e, DECADE.QA_SUMMARY s, DECADE.CATALOG c where c.expnum in (select expnum from DECADE.EXPOSURE where propid in ('2019A-0065','2019B-0219','2019B-0304','2019B-1005','2019B-1011','2019B-0910','2021A-0037','2021A-0113','2021B-0038') and obstype='object') and i.filetype='red_immask' and f.filename=i.filename and c.expnum=i.expnum and i.expnum=e.expnum and e.expnum=s.expnum and i.band=:band and e.OBJECT=:field"
             self.cur.execute(get_list,band=band,field=field)
             info_list = self.cur.fetchall()
         # TODO: Search misc fields

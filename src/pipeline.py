@@ -95,7 +95,6 @@ class Pipeline:
                 # make weight maps and mask
                 code = bash('makeWeight -inFile_img %s -border 20 -outroot %s' % (local_path,file_root))
                 if code != 0:
-                    print('problem!!!!!!!!!!!!!!!!!')
                     safe_rm(local_path, self.debug_mode)
                     return None
                 # convert files to single-header format
