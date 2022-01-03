@@ -31,8 +31,8 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
     #if out_dir is None:
     #    out_dir = os.path.join(tile_dir,band)
     # Set up database
-    if "shen-" in pointing.lower():
-        field = pointing.lower().split('shen-')[1].upper()
+    if "decade-" in pointing.lower():
+        field = pointing.lower().split('decade-')[1].upper()
         query_sci = query.Query('db-desoper','decade')
     else:
         field = None
@@ -40,12 +40,20 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
     print("Querying single-epoch images for %s." % pointing)
     # Get reduced filenames and related info
     # Supernova field
-    if pointing.startswith('SN-') or pointing.lower() == "cosmos" or "shen-" in pointing.lower():
+    dither = True
+    if pointing.startswith('SN-') or pointing.lower() == "cosmos" or "decade-" in pointing.lower():
+        dither = False
         # pointing is the fieldname in this case
-        pointing = pointing.lower().split('shen-')[1].upper()
+        pointing = pointing.lower().split('decade-')[1].upper()
         image_list = query_sci.get_image_info_field(pointing,band)
+        # Need dithering
+        if "decade-" in pointing.lower():
+            dither = True
+            targetra = np.median(image_list['TRADEG'])
+            targetdec = np.median(image_list['TDECDEG'])
     # Main survey (pointing is a value from 0-2038)
-    else:
+    if dither:
+        # Main survey
         if targetra is None and targetdec is None:
             # Load pointings table
             dtype = [('tra',float),('tdec',float),('mjd_obs',float)]
@@ -79,13 +87,13 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
     
     print("Running pipeline.")
     # Supernova field
-    if pointing.startswith('SN-') or pointing.lower() == "cosmos" or "shen-" in pointing.lower():
+    if pointing.startswith('SN-') or pointing.lower() == "cosmos":
         # Here image_list is all image info
-        image_list_all = des_pipeline.run_ccd_sn(image_list,num_threads,template_season,fermigrid)
+        image_list_all = des_pipeline.run_ccd(image_list,num_threads,template_season,fermigrid)
     # Main survey
     else:
         # Here image_list is just the template image info
-        image_list_all = des_pipeline.run_ccd_survey(image_list,query_sci,num_threads,template_season,fermigrid,band,coadd_diff=offset,offset=offset)
+        image_list_all = des_pipeline.run_ccd_dither(image_list,query_sci,pointing,num_threads,template_season,fermigrid,band,coadd_diff=offset,offset=offset)
     # Save data to out_dir
     b = np.vstack(map(list, image_list_all))
     np.savetxt(os.path.join(tile_dir,'image_list_all.csv'), b, fmt='\n'.join(['%s']*b.shape[1]))
@@ -101,7 +109,7 @@ def main():
     # Set up arguments
     parser = argparse.ArgumentParser(description='DES difference imaging pipeline.')
     parser.add_argument('--survey',default=None,help='Survey pointing number (1-2180) or target name')
-    parser.add_argument('--field',type=str,default=None,help='Field name (e.g. SN-C3, S-CVZ, or COSMOS)')
+    parser.add_argument('--field',type=str,default=None,help='Field name (e.g. SN-C3, DECADE-S-CVZ, or COSMOS)')
     parser.add_argument('--ra',type=float,default=None,help="Target RA [deg.]")
     parser.add_argument('--dec',type=float,default=None,help="Target dec [deg.]")
     parser.add_argument('-c','--ccd',type=int,default=None,help="Which CCD to use (default is all; ignored if pointing=TARGET)")

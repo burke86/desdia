@@ -306,7 +306,7 @@ class Pipeline:
         return info_list
     
 
-    def run_ccd_sn(self,image_list,num_threads=1,template_season=6,fermigrid=False):
+    def run_ccd(self,image_list,num_threads=1,template_season=6,fermigrid=False):
         # given list of single-epoch image filenames in same tile or region, execute pipeline
         print('Pooling %d single-epoch images to %d threads.' % (len(image_list),num_threads))
         print('Downloading images, making weight maps and image masks.')
@@ -334,7 +334,7 @@ class Pipeline:
         return file_info_all
     
 
-    def run_ccd_survey(self,image_list,query_sci,num_threads=1,template_season=6,fermigrid=False,band='g',coadd_diff=False,offset=False):
+    def run_ccd_dither(self,image_list,query_sci,field,num_threads=1,template_season=6,fermigrid=False,band='g',coadd_diff=False,offset=False):
         # given list of single-epoch image filenames in same pointing, execute pipeline
         print('Pooling %d single-epoch images to %d threads.' % (len(image_list),num_threads))
         print('Downloading images, making weight maps and image masks.')
@@ -356,7 +356,7 @@ class Pipeline:
             # (dithering prevents us from using same CCD ID as in SN fields)
             image_list = query_sci.get_image_info_overlap(file_info_template['ramin'][0],file_info_template['ramax'][0],
                                                          file_info_template['decmin'][0],file_info_template['decmax'][0],
-                                                         band=band)
+                                                         field=field,band=band)
             if image_list is None:
                 print('***Error: No overlapping images found.***')
                 return
