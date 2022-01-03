@@ -342,6 +342,11 @@ class Pipeline:
         print("Downloaded %d images" % len(file_info_all))
         file_info_all = clean_tpool(self.make_weight, file_info_all, num_threads)
         print('Making templates and aligning frames.')
+        # Use sn weighting?
+        if field.lower() == 'survey':
+            sn = False
+        else:
+            sn = True
         # CCD loop in template list
         image_list_all = []
         for ccd in np.sort(np.unique(file_info_all['ccd'])):
@@ -349,7 +354,7 @@ class Pipeline:
             file_info_template = file_info_all[file_info_all['ccd']==ccd]
             if len(file_info_template) == 0: continue
             print('Making template')
-            code = self.make_template(file_info_template,sn=False,season=template_season,num_threads=num_threads)
+            code = self.make_template(file_info_template,sn=sn,season=template_season,num_threads=num_threads)
             if code != 0: continue
             print('Querying overlapping CCD images.')
             # Now query images which overlap with this template CCD
