@@ -306,7 +306,7 @@ class Pipeline:
         return info_list
     
 
-    def run_ccd(self,image_list,num_threads=1,template_season=6,fermigrid=False):
+    def run_ccd_sn(self,image_list,num_threads=1,template_season=6,fermigrid=False):
         # given list of single-epoch image filenames in same tile or region, execute pipeline
         print('Pooling %d single-epoch images to %d threads.' % (len(image_list),num_threads))
         print('Downloading images, making weight maps and image masks.')
@@ -334,7 +334,7 @@ class Pipeline:
         return file_info_all
     
 
-    def run_ccd_dither(self,image_list,query_sci,field,num_threads=1,template_season=6,fermigrid=False,band='g',coadd_diff=False,offset=False):
+    def run_ccd_dither(self,image_list,query_sci,field,num_threads=1,template_season=6,fermigrid=False,band='g',coadd_diff=False,gen_lc=False):
         # given list of single-epoch image filenames in same pointing, execute pipeline
         print('Pooling %d single-epoch images to %d threads.' % (len(image_list),num_threads))
         print('Downloading images, making weight maps and image masks.')
@@ -383,7 +383,7 @@ class Pipeline:
             file_info = clean_tpool(self.forced_photometry,file_info,num_threads)
             # write lightcurve data
 	    # seems to be different numbers of detections in template and diff images for some reason
-            if offset==False:
+            if gen_lc:
                 print('Generating light curves.')
                 self.generate_light_curves(file_info)
                 # TODO clean directory

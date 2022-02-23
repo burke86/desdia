@@ -4,9 +4,9 @@ import argparse
 import commands
 from random import randint
 import query, pipeline
-from misc import bash
+from misc import bash, get_central_pointing
 
-def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=6,band='g',work_dir='./work',out_dir=None,threads=1,debug_mode=False,offset=False):
+def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=6,band='g',work_dir='./work',out_dir=None,threads=1,debug_mode=False,offset=False,coadd_diff=True):
     # Start
     max_threads = 32
     top_dir = None
@@ -26,45 +26,64 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
         fermigrid = True
         max_threads = threads # Match to requested number of CPUs
         time.sleep(randint(1,10)) # Be less harsh on database
+
     # Create directory for tile
     tile_dir = os.path.join(work_dir,pointing)
     #if out_dir is None:
     #    out_dir = os.path.join(tile_dir,band)
+
     # Set up database
     if "decade-" in pointing.lower():
         field = pointing.lower().split('decade-')[1].upper()
         query_sci = query.Query('db-desoper','decade')
     else:
-        field = None
+        field = 'survey'
         query_sci = query.Query('db-dessci')
+
     print("Querying single-epoch images for %s." % pointing)
     # Get reduced filenames and related info
     # Supernova field
-    dither = True
-    if pointing.startswith('SN-') or pointing.lower() == "cosmos" or "decade-" in pointing.lower():
-        dither = False
-        # pointing is the fieldname in this case
+    if pointing.startswith('SN-'):
+        image_list = query_sci.get_image_info_field(pointing,band)
+     # Special fields
+    elif pointing.lower() == "cosmos":
+        image_list = query_sci.get_image_info_field(pointing,band)
+        # Get single, central pointing for template
+        print(get_central_pointing(image_list['telra'], image_list['teldec']))
+        idx, (fieldra, fielddec) = get_central_pointing(image_list['telra'], image_list['teldec'])
+        #template_mjd = image_list['mjd_obs'][idx]
+        mask_template = (image_list['telra']==fieldra) & (image_list['teldec']==fielddec)
+        image_list = image_list[mask_template]
+        print(field)
+        # Get template filename info at requested pointing
+        #image_list = query_sci.get_image_info_pointing(fieldra,fielddec,band=band,field=field)
+        print(image_list)
+    elif "decade-" in pointing.lower():
+        # pointing is the field name in this case
         pointing = pointing.lower().split('decade-')[1].upper()
         image_list = query_sci.get_image_info_field(pointing,band)
-        # Need dithering
-        if "decade-" in pointing.lower():
-            dither = True
-            targetra = np.median(image_list['TRADEG'])
-            targetdec = np.median(image_list['TDECDEG'])
-    # Main survey (pointing is a value from 0-2038)
-    if dither:
-        # Main survey
+        # Get single, central pointing for template
+        idx, (fieldra, fielddec) = get_central_pointing(image_list['telra'], image_list['teldec'])
+        #template_mjd = image_list['mjd_obs'][idx]
+        # Get template filename info at requested pointing
+        #image_list = query_sci.get_image_info_pointing(fieldra,fielddec,band=band,field=field)
+    # Main survey pointing(s)
+    else:
+        # No input target (main survey and special fields)
         if targetra is None and targetdec is None:
-            # Load pointings table
+            # Load pointings table for main survey (pointing is a value from 0-2038)
             dtype = [('tra',float),('tdec',float),('mjd_obs',float)]
             data = np.genfromtxt('./etc/y%dpoint.csv' % template_season,delimiter=',',skip_header=1,dtype=dtype)
             data = data[int(pointing)] # Get the pointing number
             # Get template filename info at requested pointing
             image_list = query_sci.get_image_info_pointing(data['tra'],data['tdec'],data['mjd_obs'],band=band,field=field)
+        # Input target specified
         else:
             # TODO: RACROSS0 edge case
             # Get template pointing at target
             pointing_list = query_sci.get_pointing_coord(targetra,targetdec,band,template_season,field=field)
+            if pointing_list is None:
+                print('***No %s template images found in season %s! ***' % (field,template_season))
             # Get template filename info at requested pointing
             image_list = query_sci.get_image_info_pointing(pointing_list['TRADEG'][0],pointing_list['TDECDEG'][0],pointing_list['mjd_obs'][0],band=band,field=field)
             # Restrict to images with just the target
@@ -74,7 +93,7 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
             else:
                 print('***Warning: You specified a CCD and a target coordinate, which is usually not desired.***')
     if image_list is None:
-        print("***No images found in field/tile %s!***" % pointing)
+        print("***No images found in pointing %s!***" % pointing)
         return
     
     # If ccd is specified, run in single-CCD mode
@@ -86,14 +105,14 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
     num_threads = np.clip(threads,0,max_threads)
     
     print("Running pipeline.")
-    # Supernova field
-    if pointing.startswith('SN-') or pointing.lower() == "cosmos":
+    # No dithering (SN fields)
+    if pointing.startswith('SN-'):
         # Here image_list is all image info
-        image_list_all = des_pipeline.run_ccd(image_list,num_threads,template_season,fermigrid)
-    # Main survey
+        image_list_all = des_pipeline.run_ccd_sn(image_list,num_threads,template_season,fermigrid)
+    # Dithering (main survey and special fields)
     else:
-        # Here image_list is just the template image info
-        image_list_all = des_pipeline.run_ccd_dither(image_list,query_sci,pointing,num_threads,template_season,fermigrid,band,coadd_diff=offset,offset=offset)
+        # Here image_list is just the template image info (will be restricted to template_season)
+        image_list_all = des_pipeline.run_ccd_dither(image_list,query_sci,field,num_threads,template_season,fermigrid,band,coadd_diff=coadd_diff,gen_lc=~offset)
     # Save data to out_dir
     b = np.vstack(map(list, image_list_all))
     np.savetxt(os.path.join(tile_dir,'image_list_all.csv'), b, fmt='\n'.join(['%s']*b.shape[1]))

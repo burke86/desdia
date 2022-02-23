@@ -60,6 +60,8 @@ class Query:
         if self.user == 'local':
             get_list = "select unique e.tradeg, e.tdecdeg, e.mjd_obs, i.ccdnum from y6a1_image i, y6a1_exposure e where e.mjd_obs>:t0 and e.mjd_obs<:t1 and e.PROGRAM='survey' and i.expnum=e.expnum and (:ra between i.racmin and i.racmax) and (:dec between i.deccmin and i.deccmax) and i.band=:band"
             self.cur.execute(get_list,ra=ra,dec=dec,t0=t0,t1=t1,band=band)
+            print(ra, dec)
+            print('local query!')
         elif self.user == 'decade':
             get_list = "select unique e.tradeg, e.tdecdeg, e.mjd_obs, i.ccdnum from DECADE.IMAGE i, DECADE.EXPOSURE e where e.mjd_obs>:t0 and e.mjd_obs<:t1 and e.OBJECT=:field and i.expnum=e.expnum and (:ra between i.racmin and i.racmax) and (:dec between i.deccmin and i.deccmax) and i.band=:band"
             self.cur.execute(get_list,field=field,ra=ra,dec=dec,t0=t0,t1=t1,band=band)
@@ -75,15 +77,25 @@ class Query:
             return None
         
     
-    def get_image_info_pointing(self,tra,tdec,mjd_obs,band='g',field=None):
+    def get_image_info_pointing(self,tra,tdec,mjd_obs=None,band='g',field=None):
         # Get image archive info (URL) from specific pointing and MJD (to generate templates)
+        if mjd_obs is None:
+            mjd_str = ""
+        else:
+            mjd_str = "and e.mjd_obs=:mjd_obs"
         # Get Y1-Y6 images
         if self.user == 'local':
-            get_list = "select unique f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs, i.racmin, i.racmax, i.deccmin, i.deccmax from y6a1_file_archive_info f, y6a1_image i, y6a1_exposure e, y6a1_qa_summary s, y6a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and e.TRADEG=:tra and e.TDECDEG=:tdec and i.band=:band and e.mjd_obs=:mjd_obs and z.version=:version"
-            self.cur.execute(get_list,tra=tra,tdec=tdec,band=band,mjd_obs=mjd_obs,version="y6a1_v2.1")
+            get_list = "select unique f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs, i.racmin, i.racmax, i.deccmin, i.deccmax from y6a1_file_archive_info f, y6a1_image i, y6a1_exposure e, y6a1_qa_summary s, y6a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and e.TRADEG=:tra and e.TDECDEG=:tdec and i.band=:band %s and z.version=:version" % mjd_str
+            if mjd_obs is None:
+                self.cur.execute(get_list,tra=tra,tdec=tdec,band=band,version="y6a1_v2.1")
+            else:
+                self.cur.execute(get_list,tra=tra,tdec=tdec,band=band,mjd_obs=mjd_obs,version="y6a1_v2.1")
         elif self.user == 'decade':
-            get_list = "select unique f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs, i.racmin, i.racmax, i.deccmin, i.deccmax from DECADE.FILE_ARCHIVE_INFO f, DECADE.IMAGE i, DECADE.EXPOSURE e, DECADE.QA_SUMMARY s where i.filetype='red_immask' and f.filename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and e.TRADEG=:tra and e.TDECDEG=:tdec and i.band=:band and e.mjd_obs=:mjd_obs and e.OBJECT=:field"
-            self.cur.execute(get_list,tra=tra,tdec=tdec,band=band,mjd_obs=mjd_obs,field=field)
+            get_list = "select unique f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs, i.racmin, i.racmax, i.deccmin, i.deccmax from DECADE.FILE_ARCHIVE_INFO f, DECADE.IMAGE i, DECADE.EXPOSURE e, DECADE.QA_SUMMARY s where i.filetype='red_immask' and f.filename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and e.TRADEG=:tra and e.TDECDEG=:tdec and i.band=:band %s and e.OBJECT=:field" % mjd_str
+            if mjd_obs is None:
+                self.cur.execute(get_list,tra=tra,tdec=tdec,band=band,field=field)
+            else:
+                self.cur.execute(get_list,tra=tra,tdec=tdec,band=band,mjd_obs=mjd_obs,field=field)
         info_list = self.cur.fetchall()
         if len(info_list) > 0:
             dtype = [("filename","|S41"),("path","|S200"),("compression","|S4"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float),("ramin",float),("ramax",float),("decmin",float),("decmax",float)]
@@ -141,7 +153,8 @@ class Query:
     def get_image_info_field(self,field,band='g'):
         # get image archive info (URL) from SN-field name or COSMOS
         select = "f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs, e.telra, e.teldec, i.racmin, i.racmax, i.deccmin, i.deccmax"
-        if field.lower() == "cosmos":
+        if field.lower() == "des-cosmos" or field.lower() == "cosmos":
+            field = 'cosmos'
             decmin, decmax = 1.22, 3.20
             ramin, ramax = 149.03, 151.21
             # get Y1-Y6 images
@@ -164,6 +177,7 @@ class Query:
         else: # Yue's follow up programs of special fields
             # get images
             get_list = "select unique %s from DECADE.FILE_ARCHIVE_INFO f, DECADE.IMAGE i, DECADE.EXPOSURE e, DECADE.QA_SUMMARY s, DECADE.CATALOG c where c.expnum in (select expnum from DECADE.EXPOSURE where propid in ('2019A-0065','2019B-0219','2019B-0304','2019B-1005','2019B-1011','2019B-0910','2021A-0037','2021A-0113','2021B-0038') and obstype='object') and i.filetype='red_immask' and f.filename=i.filename and c.expnum=i.expnum and i.expnum=e.expnum and e.expnum=s.expnum and i.band=:band and e.OBJECT=:field" % select
+            print(get_list)
             self.cur.execute(get_list,band=band,field=field)
             info_list = self.cur.fetchall()
         # TODO: Search misc fields
@@ -171,7 +185,6 @@ class Query:
             dtype = [("filename","|S41"),("path","|S200"),("compression","|S4"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float),("telra","|S16"),("teldec","|S16"),("ramin",float),("ramax",float),("decmin",float),("decmax",float)]
             info_list = np.array(info_list,dtype=dtype)
             # Coordinates
-            print(info_list['telra'])
             ang_ra_deg = np.zeros(len(info_list))
             ang_dec_deg = np.zeros(len(info_list))
             for i, f in enumerate(info_list):
