@@ -18,9 +18,9 @@ The `-c` flag can be used to specify the CCD. The `-n` flag specifies the number
 
 `./desdia --field COSMOS -n 30 -c 1 -w /data/des80.a/data/${USER}/ -s 2 --nowarn`
 
-`./desdia --field Shen-S-CVZ -n 30 -c 1 -s 8 -w /data/des80.a/data/${USER}/ --nowarn`
+`./desdia --field DECADE-S-CVZ -n 30 -c 1 -s 8 -w /data/des80.a/data/${USER}/ --nowarn`
 
-No COSMOS images were taking in the default season (Y6), so use the `-s` flag to change the template season to Y2.
+No COSMOS images were taking in the default season (Y6), so add `-s 2` to change the template season to Y2.
 
 
 #### Wide-Area (Main Survey)
