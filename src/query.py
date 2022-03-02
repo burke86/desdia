@@ -85,26 +85,26 @@ class Query:
             mjd_str = "and e.mjd_obs=:mjd_obs"
         # Get Y1-Y6 images
         if self.user == 'local':
-            get_list = "select unique f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs, i.racmin, i.racmax, i.deccmin, i.deccmax from y6a1_file_archive_info f, y6a1_image i, y6a1_exposure e, y6a1_qa_summary s, y6a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and e.TRADEG=:tra and e.TDECDEG=:tdec and i.band=:band %s and z.version=:version" % mjd_str
+            get_list = "select unique f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs, e.propid, i.racmin, i.racmax, i.deccmin, i.deccmax from y6a1_file_archive_info f, y6a1_image i, y6a1_exposure e, y6a1_qa_summary s, y6a1_zeropoint z where i.filetype='red_immask' and f.filename=i.filename and z.imagename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and e.TRADEG=:tra and e.TDECDEG=:tdec and i.band=:band %s and z.version=:version" % mjd_str
             if mjd_obs is None:
                 self.cur.execute(get_list,tra=tra,tdec=tdec,band=band,version="y6a1_v2.1")
             else:
                 self.cur.execute(get_list,tra=tra,tdec=tdec,band=band,mjd_obs=mjd_obs,version="y6a1_v2.1")
         elif self.user == 'decade':
-            get_list = "select unique f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs, i.racmin, i.racmax, i.deccmin, i.deccmax from DECADE.FILE_ARCHIVE_INFO f, DECADE.IMAGE i, DECADE.EXPOSURE e, DECADE.QA_SUMMARY s where i.filetype='red_immask' and f.filename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and e.TRADEG=:tra and e.TDECDEG=:tdec and i.band=:band %s and e.OBJECT=:field" % mjd_str
+            get_list = "select unique f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs, e.propid, i.racmin, i.racmax, i.deccmin, i.deccmax from DECADE.FILE_ARCHIVE_INFO f, DECADE.IMAGE i, DECADE.EXPOSURE e, DECADE.QA_SUMMARY s where i.filetype='red_immask' and f.filename=i.filename and i.expnum=e.expnum and e.expnum=s.expnum and e.TRADEG=:tra and e.TDECDEG=:tdec and i.band=:band %s and e.OBJECT=:field" % mjd_str
             if mjd_obs is None:
                 self.cur.execute(get_list,tra=tra,tdec=tdec,band=band,field=field)
             else:
                 self.cur.execute(get_list,tra=tra,tdec=tdec,band=band,mjd_obs=mjd_obs,field=field)
         info_list = self.cur.fetchall()
         if len(info_list) > 0:
-            dtype = [("filename","|S41"),("path","|S200"),("compression","|S4"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float),("ramin",float),("ramax",float),("decmin",float),("decmax",float)]
+            dtype = [("filename","|S41"),("path","|S200"),("compression","|S4"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float),("propid","|S200"),("ramin",float),("ramax",float),("decmin",float),("decmax",float)]
             info_list = np.array(info_list,dtype=dtype)
             # Form URL and data type
             ccd_list = [f["filename"].split('_c')[1][:2] for f in info_list]
             url_list = [self.base_url+f["path"]+"/"+f["filename"]+f["compression"] for f in info_list]
-            dtype = [("path","|S300"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float),("ccd",int),("ramin",float),("ramax",float),("decmin",float),("decmax",float)]
-            info_list = list(zip(url_list,info_list["psf_fwhm"],info_list["skysigma"],info_list["mjd_obs"],ccd_list,info_list["ramin"],info_list["ramax"],info_list["decmin"],info_list["decmax"]))
+            dtype = [("path","|S300"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float),("ccd",int),("propid","|S200"),("ramin",float),("ramax",float),("decmin",float),("decmax",float)]
+            info_list = list(zip(url_list,info_list["psf_fwhm"],info_list["skysigma"],info_list["mjd_obs"],ccd_list,info_list["propid"],info_list["ramin"],info_list["ramax"],info_list["decmin"],info_list["decmax"]))
             info_list = np.array(info_list,dtype=dtype)
             return info_list
         else:
@@ -152,7 +152,7 @@ class Query:
 
     def get_image_info_field(self,field,band='g'):
         # get image archive info (URL) from SN-field name or COSMOS
-        select = "f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs, e.telra, e.teldec, i.racmin, i.racmax, i.deccmin, i.deccmax"
+        select = "f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs, e.telra, e.teldec, e.propid, i.racmin, i.racmax, i.deccmin, i.deccmax"
         if field.lower() == "des-cosmos" or field.lower() == "cosmos":
             field = 'cosmos'
             decmin, decmax = 1.22, 3.20
@@ -182,7 +182,7 @@ class Query:
             info_list = self.cur.fetchall()
         # TODO: Search misc fields
         if len(info_list) > 0:
-            dtype = [("filename","|S41"),("path","|S200"),("compression","|S4"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float),("telra","|S16"),("teldec","|S16"),("ramin",float),("ramax",float),("decmin",float),("decmax",float)]
+            dtype = [("filename","|S41"),("path","|S200"),("compression","|S4"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float),("telra","|S16"),("teldec","|S16"),("propid","|S200"),("ramin",float),("ramax",float),("decmin",float),("decmax",float)]
             info_list = np.array(info_list,dtype=dtype)
             # Coordinates
             ang_ra_deg = np.zeros(len(info_list))
@@ -196,8 +196,8 @@ class Query:
             ccd_list = [f["filename"].split('_c')[1][:2] for f in info_list]
             info_list["compression"] = ["" if f["compression"]=='None' else f["compression"] for f in info_list]
             url_list = [self.base_url+f["path"]+"/"+f["filename"]+f["compression"] for f in info_list]
-            dtype = [("path","|S300"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float),("ccd",int),("telra",float),("teldec",float),("ramin",float),("ramax",float),("decmin",float),("decmax",float)]
-            info_list = list(zip(url_list,info_list["psf_fwhm"],info_list["skysigma"],info_list["mjd_obs"],ccd_list,ang_ra_deg,ang_dec_deg,info_list["ramin"],info_list["ramax"],info_list["decmin"],info_list["decmax"]))
+            dtype = [("path","|S300"),("psf_fwhm",float),("skysigma",float),("mjd_obs",float),("ccd",int),("propid","|S200"),("telra",float),("teldec",float),("ramin",float),("ramax",float),("decmin",float),("decmax",float)]
+            info_list = list(zip(url_list,info_list["psf_fwhm"],info_list["skysigma"],info_list["mjd_obs"],ccd_list,info_list["propid"],ang_ra_deg,ang_dec_deg,info_list["ramin"],info_list["ramax"],info_list["decmin"],info_list["decmax"]))
             info_list = np.array(info_list,dtype=dtype)
             return info_list
         else:

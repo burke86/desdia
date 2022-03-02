@@ -48,25 +48,23 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
      # Special fields
     elif pointing.lower() == "cosmos":
         image_list = query_sci.get_image_info_field(pointing,band)
+        print(np.unique(image_list['propid']))
+        # TODO: Probably restrict to season a here to ensure the template pointing is valid?
         # Get single, central pointing for template
-        print(get_central_pointing(image_list['telra'], image_list['teldec']))
         idx, (fieldra, fielddec) = get_central_pointing(image_list['telra'], image_list['teldec'])
-        #template_mjd = image_list['mjd_obs'][idx]
         mask_template = (image_list['telra']==fieldra) & (image_list['teldec']==fielddec)
         image_list = image_list[mask_template]
-        print(field)
-        # Get template filename info at requested pointing
-        #image_list = query_sci.get_image_info_pointing(fieldra,fielddec,band=band,field=field)
-        print(image_list)
+        template_season = None
     elif "decade-" in pointing.lower():
         # pointing is the field name in this case
         pointing = pointing.lower().split('decade-')[1].upper()
         image_list = query_sci.get_image_info_field(pointing,band)
+        print(np.unique(image_list['propid']))
         # Get single, central pointing for template
         idx, (fieldra, fielddec) = get_central_pointing(image_list['telra'], image_list['teldec'])
-        #template_mjd = image_list['mjd_obs'][idx]
-        # Get template filename info at requested pointing
-        #image_list = query_sci.get_image_info_pointing(fieldra,fielddec,band=band,field=field)
+        mask_template = (image_list['telra']==fieldra) & (image_list['teldec']==fielddec)
+        image_list = image_list[mask_template]
+        template_season = None
     # Main survey pointing(s)
     else:
         # No input target (main survey and special fields)
@@ -99,7 +97,9 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
     # If ccd is specified, run in single-CCD mode
     if ccd is not None:
         image_list = image_list[image_list['ccd']==ccd]
-    
+
+    print(image_list['propid'])
+
     # Run pipeline
     des_pipeline = pipeline.Pipeline(band,query_sci.usr,query_sci.psw,tile_dir,top_dir,debug_mode)
     num_threads = np.clip(threads,0,max_threads)

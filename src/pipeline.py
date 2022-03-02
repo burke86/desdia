@@ -146,13 +146,16 @@ class Pipeline:
     
 
     def make_template(self, info_list, sn=True, season=6, num_threads=1):
-        # Use Y3 images
+        # Make template
         ccd = info_list["ccd"][0]
-        t0_Y6 = 58250
-        t1_Y6 = 58615
-        t0 = t0_Y6 + 365*(season - 6)
-        t1 = t1_Y6 + 365*(season - 6)
-        info_list_template = info_list[(info_list["mjd_obs"] > t0) & (info_list["mjd_obs"] < t1)] # Y6
+        if season is not None:
+            t0_Y6 = 58250
+            t1_Y6 = 58615
+            t0 = t0_Y6 + 365*(season - 6)
+            t1 = t1_Y6 + 365*(season - 6)
+            info_list_template = info_list[(info_list["mjd_obs"] > t0) & (info_list["mjd_obs"] < t1)]
+        else:
+            info_list_template = info_list
         if len(info_list_template) ==  0:
             print("No Y%d images to generate template!" % season)
             return 1
