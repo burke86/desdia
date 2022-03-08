@@ -25,7 +25,20 @@ class Query:
         # start connection
         self.con = desdbi.DesDbi(self.desdmfile,section)
         self.cur = self.con.cursor()
-        
+
+	# prop-ids
+        self.decade_propids = ("'2019A-0065'," # C3, X123, COSMOS
+                               "'2019B-0219'," # Liu, S1+S2
+                               "'2019B-0304'," # Martini, E1+E2
+                               "'2019B-0910'," # merged program in 19B (Shen, Martini, Liu)
+                               "'2021A-0037'," # S-CVZ
+                               "'2021A-0113'," # Graham DDF
+                               "'2021B-0149'," # Graham DDFz
+                               "'2022A-499674'," # Shen (C3, X123, COSMOS)
+                               "'2022A-724693'," # Graham DDF
+                               "'2021B-0038',"  # eFEDS
+                               "'2019B-1005'," # merged with 2019B-0910 
+                               "'2019B-1011'") # merged with 2019B-0910 
 
     def get_filenames_from_object(self,ra,dec,band,window_radius=10):
         # get reduced filename from RA, DEC of object
@@ -60,8 +73,6 @@ class Query:
         if self.user == 'local':
             get_list = "select unique e.tradeg, e.tdecdeg, e.mjd_obs, i.ccdnum from y6a1_image i, y6a1_exposure e where e.mjd_obs>:t0 and e.mjd_obs<:t1 and e.PROGRAM='survey' and i.expnum=e.expnum and (:ra between i.racmin and i.racmax) and (:dec between i.deccmin and i.deccmax) and i.band=:band"
             self.cur.execute(get_list,ra=ra,dec=dec,t0=t0,t1=t1,band=band)
-            print(ra, dec)
-            print('local query!')
         elif self.user == 'decade':
             get_list = "select unique e.tradeg, e.tdecdeg, e.mjd_obs, i.ccdnum from DECADE.IMAGE i, DECADE.EXPOSURE e where e.mjd_obs>:t0 and e.mjd_obs<:t1 and e.OBJECT=:field and i.expnum=e.expnum and (:ra between i.racmin and i.racmax) and (:dec between i.deccmin and i.deccmax) and i.band=:band"
             self.cur.execute(get_list,field=field,ra=ra,dec=dec,t0=t0,t1=t1,band=band)
@@ -131,9 +142,9 @@ class Query:
             self.cur.execute(get_list,ramin=ramin,ramax=ramax,decmin=decmin,decmax=decmax,band=band,version="v2.0")
             info_list += self.cur.fetchall()
         else:
-            get_list = "select unique f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from DECADE.FILE_ARCHIVE_INFO f, DECADE.IMAGE i, DECADE.EXPOSURE e, DECADE.QA_SUMMARY s, DECADE.CATALOG c where c.expnum in (select expnum from DECADE.EXPOSURE where propid in ('2019A-0065','2019B-0219','2019B-0304','2019B-1005','2019B-1011','2019B-0910','2021A-0037','2021A-0113','2021B-0038') and obstype='object') and i.filetype='red_immask' and f.filename=i.filename and c.expnum=i.expnum and i.expnum=e.expnum and e.expnum=s.expnum and i.band=:band and e.OBJECT=:field and \
+            get_list = "select unique f.filename, f.path, f.compression, s.psf_fwhm, i.skysigma, e.mjd_obs from DECADE.FILE_ARCHIVE_INFO f, DECADE.IMAGE i, DECADE.EXPOSURE e, DECADE.QA_SUMMARY s, DECADE.CATALOG c where c.expnum in (select expnum from DECADE.EXPOSURE where propid in (%s) and obstype='object') and i.filetype='red_immask' and f.filename=i.filename and c.expnum=i.expnum and i.expnum=e.expnum and e.expnum=s.expnum and i.band=:band and e.OBJECT=:field and \
             (i.racmin between :ramin and :ramax or i.racmax between :ramin and :ramax) and \
-            (i.deccmin between :decmin and :decmax or i.deccmax between :decmin and :decmax)"
+            (i.deccmin between :decmin and :decmax or i.deccmax between :decmin and :decmax)" % self.decade_propids
             self.cur.execute(get_list,ramin=ramin,ramax=ramax,decmin=decmin,decmax=decmax,band=band,field=field)
             info_list = self.cur.fetchall()
         if len(info_list) > 0:
@@ -176,8 +187,7 @@ class Query:
             info_list += self.cur.fetchall()
         else: # Yue's follow up programs of special fields
             # get images
-            get_list = "select unique %s from DECADE.FILE_ARCHIVE_INFO f, DECADE.IMAGE i, DECADE.EXPOSURE e, DECADE.QA_SUMMARY s, DECADE.CATALOG c where c.expnum in (select expnum from DECADE.EXPOSURE where propid in ('2019A-0065','2019B-0219','2019B-0304','2019B-1005','2019B-1011','2019B-0910','2021A-0037','2021A-0113','2021B-0038') and obstype='object') and i.filetype='red_immask' and f.filename=i.filename and c.expnum=i.expnum and i.expnum=e.expnum and e.expnum=s.expnum and i.band=:band and e.OBJECT=:field" % select
-            print(get_list)
+            get_list = "select unique %s from DECADE.FILE_ARCHIVE_INFO f, DECADE.IMAGE i, DECADE.EXPOSURE e, DECADE.QA_SUMMARY s, DECADE.CATALOG c where c.expnum in (select expnum from DECADE.EXPOSURE where propid in (%s) and obstype='object') and i.filetype='red_immask' and f.filename=i.filename and c.expnum=i.expnum and i.expnum=e.expnum and e.expnum=s.expnum and i.band=:band and e.OBJECT=:field" % (select, self.decade_propids)
             self.cur.execute(get_list,band=band,field=field)
             info_list = self.cur.fetchall()
         # TODO: Search misc fields

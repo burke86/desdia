@@ -138,9 +138,16 @@ class Pipeline:
         s = swarp_all_list.split()
         resample_dir = os.path.dirname(coadd_sci)
         if not os.path.exists(coadd_sci):
+            # Coadd
             bash('ln -s %s %s.head' % (s[0], coadd_sci[0:-5]))
             command = 'swarp %s -c %s -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s -NTHREADS %d -RESAMPLE_DIR %s'
             args = (swarp_all_list,self.swarp_file,coadd_sci,coadd_wgt,num_threads,resample_dir)
+            bash(command % args)
+            # Extract photometry
+        if not os.path.exists(coadd_sci):
+            outfile_cat = 'cat_coadd_diff_c%d.dat' % ccd
+            command = 'sex %s -WEIGHT_IMAGE %s  -CATALOG_NAME %s -c %s -MAG_ZEROPOINT 30.753 %s'
+            args = (coadd_sci,coadd_wgt,outfile_cat,self.sex_file,self.sex_pars)
             bash(command % args)
         return 0
     

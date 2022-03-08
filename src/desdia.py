@@ -98,8 +98,6 @@ def start_desdia(pointing,ccd=None,targetra=None,targetdec=None,template_season=
     if ccd is not None:
         image_list = image_list[image_list['ccd']==ccd]
 
-    print(image_list['propid'])
-
     # Run pipeline
     des_pipeline = pipeline.Pipeline(band,query_sci.usr,query_sci.psw,tile_dir,top_dir,debug_mode)
     num_threads = np.clip(threads,0,max_threads)
